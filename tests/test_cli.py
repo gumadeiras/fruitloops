@@ -9,6 +9,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from fruitloops.cli import main
+from fruitloops.env import load_env_file
+from fruitloops.live import parse_in_filters, parse_ints
 from fruitloops.plotting import PlotSpec
 
 
@@ -109,6 +111,26 @@ class CliTest(unittest.TestCase):
 
         self.assertEqual(output, "")
         self.assertEqual(len(render.call_args.args[0]), 2)
+
+    def test_env_file_loads_without_overriding_existing_values(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / ".env"
+            path.write_text("FRUITLOOPS_TEST_VALUE=from-file\nFRUITLOOPS_KEEP=from-file\n")
+
+            with patch.dict(
+                "os.environ",
+                {"FRUITLOOPS_KEEP": "existing"},
+                clear=False,
+            ):
+                load_env_file(path)
+                import os
+
+                self.assertEqual(os.environ["FRUITLOOPS_TEST_VALUE"], "from-file")
+                self.assertEqual(os.environ["FRUITLOOPS_KEEP"], "existing")
+
+    def test_live_id_and_filter_parsing(self) -> None:
+        self.assertEqual(parse_ints(["1,2", "3"]), [1, 2, 3])
+        self.assertEqual(parse_in_filters([("pre_pt_root_id", "1,2")]), {"pre_pt_root_id": [1, 2]})
 
 
 def run_cli(*args: str) -> str:

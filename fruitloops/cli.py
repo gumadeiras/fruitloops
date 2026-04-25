@@ -7,8 +7,18 @@ from pathlib import Path
 from .aggregate import aggregate_rows
 from .connectome import comparison_rows, partner_rows
 from .data import FruitloopsData, TableInfo, default_data_dir
+from .env import load_env_file
 from .filters import matches, parse_filters, project, split_csv
 from .formatting import emit_rows, parse_columns, print_table
+from .live import (
+    flywire_synapses,
+    flywire_table,
+    flywire_tables,
+    hemibrain_custom,
+    hemibrain_fetch_connections,
+    hemibrain_fetch_neurons,
+    parse_ints,
+)
 from .plotting import PlotSpec, render_plot
 
 
@@ -25,6 +35,12 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         default=None,
         help="Data directory. Defaults to FRUITLOOPS_DATA_DIR or ./data.",
+    )
+    parser.add_argument(
+        "--env-file",
+        type=Path,
+        default=None,
+        help="Optional env file for live database credentials. Defaults to .env.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -124,8 +140,62 @@ def main(argv: list[str] | None = None) -> int:
     plot.add_argument("--formats", default="png", help="Comma-separated: png,pdf,svg.")
     plot.set_defaults(func=cmd_plot)
 
+    live = subparsers.add_parser("live", help="Fetch data from live connectome APIs.")
+    live_subparsers = live.add_subparsers(dest="live_dataset", required=True)
+
+    hemibrain = live_subparsers.add_parser("hemibrain", help="Fetch from neuprint hemibrain.")
+    hemibrain_subparsers = hemibrain.add_subparsers(dest="live_action", required=True)
+
+    hb_neurons = hemibrain_subparsers.add_parser("neurons", help="Fetch hemibrain neuron metadata.")
+    hb_neurons.add_argument("--body-id", action="append", default=[], help="Body id, repeatable or comma-separated.")
+    hb_neurons.add_argument("--type-contains")
+    hb_neurons.add_argument("--instance-contains")
+    hb_neurons.add_argument("--limit", type=int, default=20)
+    hb_neurons.add_argument("--format", choices=FORMATS, default="table")
+    hb_neurons.set_defaults(func=cmd_live_hemibrain_neurons)
+
+    hb_connections = hemibrain_subparsers.add_parser("connections", help="Fetch hemibrain weighted connections.")
+    hb_connections.add_argument("--upstream-body-id", action="append", default=[], help="Upstream body id.")
+    hb_connections.add_argument("--downstream-body-id", action="append", default=[], help="Downstream body id.")
+    hb_connections.add_argument("--min-weight", type=int, default=1)
+    hb_connections.add_argument("--limit", type=int, default=50)
+    hb_connections.add_argument("--format", choices=FORMATS, default="table")
+    hb_connections.set_defaults(func=cmd_live_hemibrain_connections)
+
+    hb_cypher = hemibrain_subparsers.add_parser("cypher", help="Run a hemibrain Cypher query.")
+    hb_cypher.add_argument("--query", required=True)
+    hb_cypher.add_argument("--limit", type=int)
+    hb_cypher.add_argument("--format", choices=FORMATS, default="table")
+    hb_cypher.set_defaults(func=cmd_live_hemibrain_cypher)
+
+    flywire = live_subparsers.add_parser("flywire", help="Fetch from CAVE FlyWire.")
+    flywire_subparsers = flywire.add_subparsers(dest="live_action", required=True)
+
+    fw_tables = flywire_subparsers.add_parser("tables", help="List FlyWire materialized tables.")
+    fw_tables.add_argument("--format", choices=FORMATS, default="table")
+    fw_tables.set_defaults(func=cmd_live_flywire_tables)
+
+    fw_table = flywire_subparsers.add_parser("table", help="Query a FlyWire materialized table.")
+    fw_table.add_argument("--table", required=True)
+    fw_table.add_argument("--where", action="append", default=[], help="Exact filter: column=value.")
+    fw_table.add_argument("--in", dest="in_filters", action="append", default=[], help="Membership filter: column=a,b,c.")
+    fw_table.add_argument("--select", help="Comma-separated columns.")
+    fw_table.add_argument("--limit", type=int, default=50)
+    fw_table.add_argument("--materialization-version", type=int)
+    fw_table.add_argument("--format", choices=FORMATS, default="table")
+    fw_table.set_defaults(func=cmd_live_flywire_table)
+
+    fw_synapses = flywire_subparsers.add_parser("synapses", help="Query FlyWire synapses_nt_v1.")
+    fw_synapses.add_argument("--pre-root-id", action="append", default=[], help="Pre root id.")
+    fw_synapses.add_argument("--post-root-id", action="append", default=[], help="Post root id.")
+    fw_synapses.add_argument("--limit", type=int, default=50)
+    fw_synapses.add_argument("--materialization-version", type=int)
+    fw_synapses.add_argument("--format", choices=FORMATS, default="table")
+    fw_synapses.set_defaults(func=cmd_live_flywire_synapses)
+
     args = parser.parse_args(argv)
-    data = None if args.command == "plot" and args.csv else FruitloopsData(args.data_dir or default_data_dir())
+    load_env_file(args.env_file)
+    data = None if command_uses_no_manifest(args) else FruitloopsData(args.data_dir or default_data_dir())
     return args.func(args, data)
 
 
@@ -307,9 +377,76 @@ def cmd_plot(args: argparse.Namespace, data: FruitloopsData | None) -> int:
     return 0
 
 
+def cmd_live_hemibrain_neurons(args: argparse.Namespace, data: FruitloopsData | None) -> int:
+    rows = hemibrain_fetch_neurons(
+        body_ids=parse_ints(args.body_id),
+        type_contains=args.type_contains,
+        instance_contains=args.instance_contains,
+        limit=args.limit,
+    )
+    emit_dynamic_rows(rows, args.format)
+    return 0
+
+
+def cmd_live_hemibrain_connections(args: argparse.Namespace, data: FruitloopsData | None) -> int:
+    rows = hemibrain_fetch_connections(
+        upstream_body_ids=parse_ints(args.upstream_body_id),
+        downstream_body_ids=parse_ints(args.downstream_body_id),
+        min_weight=args.min_weight,
+        limit=args.limit,
+    )
+    emit_dynamic_rows(rows, args.format)
+    return 0
+
+
+def cmd_live_hemibrain_cypher(args: argparse.Namespace, data: FruitloopsData | None) -> int:
+    rows = hemibrain_custom(args.query, limit=args.limit)
+    emit_dynamic_rows(rows, args.format)
+    return 0
+
+
+def cmd_live_flywire_tables(args: argparse.Namespace, data: FruitloopsData | None) -> int:
+    rows = flywire_tables()
+    emit_dynamic_rows(rows, args.format)
+    return 0
+
+
+def cmd_live_flywire_table(args: argparse.Namespace, data: FruitloopsData | None) -> int:
+    rows = flywire_table(
+        table=args.table,
+        exact_filters=parse_filters(args.where),
+        in_filters=parse_filters(args.in_filters),
+        select_columns=split_csv(args.select),
+        limit=args.limit,
+        materialization_version=args.materialization_version,
+    )
+    emit_dynamic_rows(rows, args.format)
+    return 0
+
+
+def cmd_live_flywire_synapses(args: argparse.Namespace, data: FruitloopsData | None) -> int:
+    rows = flywire_synapses(
+        pre_root_ids=parse_ints(args.pre_root_id),
+        post_root_ids=parse_ints(args.post_root_id),
+        limit=args.limit,
+        materialization_version=args.materialization_version,
+    )
+    emit_dynamic_rows(rows, args.format)
+    return 0
+
+
 def load_csv_rows(path: Path) -> list[dict[str, str]]:
     with path.expanduser().open(newline="") as handle:
         return list(csv.DictReader(handle))
+
+
+def emit_dynamic_rows(rows: list[dict[str, str]], fmt: str) -> None:
+    columns = list(rows[0].keys()) if rows else []
+    emit_rows(rows, columns, fmt)
+
+
+def command_uses_no_manifest(args: argparse.Namespace) -> bool:
+    return (args.command == "plot" and args.csv) or args.command == "live"
 
 
 def ln_candidate_tables(data: FruitloopsData, dataset: str | None) -> list[TableInfo]:

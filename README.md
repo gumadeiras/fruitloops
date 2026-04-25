@@ -128,6 +128,48 @@ The wrapper script is equivalent:
 python scripts/plot_csv.py --csv path/to/table.csv --kind hist --value score --output outputs/score_hist
 ```
 
+## Live Connectome Access
+
+Live database access is optional. Credentials come from environment variables or
+from a local `.env` file. `.env` is ignored by git; start from `.env.example`.
+
+```bash
+python -m pip install -e '.[live]'
+cp .env.example .env
+```
+
+Use a different env file with `--env-file path/to/file.env`.
+
+Hemibrain uses `neuprint-python`:
+
+```bash
+export NEUPRINT_SERVER=neuprint.janelia.org
+export NEUPRINT_DATASET=hemibrain:v1.2.1
+export NEUPRINT_APPLICATION_CREDENTIALS=<neuprint-token>
+
+fruitloops live hemibrain neurons --type-contains il3LN6 --limit 5 --format csv
+fruitloops live hemibrain connections --upstream-body-id 5813018460 --limit 20 --format json
+fruitloops live hemibrain cypher --query 'MATCH (n:Neuron) RETURN n.bodyId AS bodyId, n.type AS type LIMIT 5'
+```
+
+FlyWire uses `caveclient`:
+
+```bash
+export FLYWIRE_DATASTACK=flywire_fafb_public
+export CAVE_AUTH_TOKEN=<cave-token>
+
+fruitloops live flywire tables --format csv
+fruitloops live flywire table --table synapses_nt_v1 --in pre_pt_root_id=720575940623636701 --limit 10 --format csv
+fruitloops live flywire synapses --pre-root-id 720575940623636701 --limit 10 --format json
+```
+
+Script shortcuts are equivalent:
+
+```bash
+python scripts/live_hemibrain.py neurons --type-contains il3LN6 --limit 5
+python scripts/live_flywire.py tables
+```
+
 ## Output Formats
 
 Most commands support `--format table`, `--format csv`, `--format json`, or
