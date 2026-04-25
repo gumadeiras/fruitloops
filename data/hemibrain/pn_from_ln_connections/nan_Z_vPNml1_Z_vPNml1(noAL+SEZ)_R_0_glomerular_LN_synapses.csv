@@ -1,0 +1,5 @@
+bodyId_pre,bodyId_post,roi,weight,bodyid_x,glomerulus,bodyid_y,name,connectivity.type,cell.type,group,class,PN_total_connections,PN_from_LN_perct
+1640909284,792364888,AL(R),1,792364888,,1640909284,lLN2F_b(Full)_R,lLN2F_b,lLN2F,lLN2F,ALLN_broad,40,0.025
+1672320134,792364888,AL(R),1,792364888,,1672320134,lLN2T_a(Tortuous)_R,lLN2T_a,lLN2T,lLN2T_a-c,ALLN_broad,40,0.025
+5813024339,792364888,AL(R),2,792364888,,5813024339,lLN2R_a(Regional)_R,lLN2R_a,lLN2R,lLN2R,ALLN_regional,40,0.05
+5813054726,792364888,AL(R),1,792364888,,5813054726,lLN2T_a(Tortuous)_R,lLN2T_a,lLN2T,lLN2T_a-c,ALLN_broad,40,0.025

@@ -1,0 +1,9 @@
+glomerulus,hemibrain_PV5a1_synapses,hemibrain_PD2a1_b1_synapses,hemibrain_PV5a1_pn_bodies,hemibrain_PD2a1_b1_pn_bodies,hemibrain_PV5a1_target_lhn_bodies,hemibrain_PD2a1_b1_target_lhn_bodies,flywire_right_PV5a1_synapses,flywire_right_PD2a1_b1_synapses,flywire_right_PV5a1_pn_roots,flywire_right_PD2a1_b1_pn_roots,flywire_right_PV5a1_target_lhn_roots,flywire_right_PD2a1_b1_target_lhn_roots,hemibrain_reaches_both,flywire_right_reaches_both,both_datasets_reach_both
+VL2p,0,0,0,0,0,0,0,0,0,0,0,0,False,False,False
+V,2,13,1,3,1,4,6,2,1,1,3,1,True,True,True
+VM7d,1,8,1,2,1,4,2,24,1,3,1,3,True,True,True
+VM7v,3,9,2,2,2,2,1,19,1,2,1,1,True,True,True
+DM3,40,19,2,2,7,6,54,14,1,1,7,4,True,True,True
+DM5,3,6,2,2,2,4,14,18,2,2,3,6,True,True,True
+DM6,28,11,4,3,4,3,60,5,3,1,5,2,True,True,True
+VM2,15,8,2,2,5,5,35,19,2,2,7,5,True,True,True

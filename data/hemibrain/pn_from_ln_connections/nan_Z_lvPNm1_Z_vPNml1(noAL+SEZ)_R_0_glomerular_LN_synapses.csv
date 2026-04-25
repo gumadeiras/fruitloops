@@ -1,0 +1,2 @@
+bodyId_pre,bodyId_post,roi,weight,bodyid_x,glomerulus,bodyid_y,name,connectivity.type,cell.type,group,class,PN_total_connections,PN_from_LN_perct
+1918207300,729608317,AL(R),2,729608317,,1918207300,lLN16b_R,lLN16B,lLN16B,lLN10-17,ALLN_sparse,27,0.07407407407407407
