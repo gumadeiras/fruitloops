@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 from pathlib import Path
 
 from .aggregate import aggregate_rows
@@ -8,6 +9,7 @@ from .connectome import comparison_rows, partner_rows
 from .data import FruitloopsData, TableInfo, default_data_dir
 from .filters import matches, parse_filters, project, split_csv
 from .formatting import emit_rows, parse_columns, print_table
+from .plotting import PlotSpec, render_plot
 
 
 FORMATS = ("table", "csv", "json", "jsonl")
@@ -91,8 +93,39 @@ def main(argv: list[str] | None = None) -> int:
     compare.add_argument("--format", choices=FORMATS, default="table")
     compare.set_defaults(func=cmd_compare)
 
+    plot = subparsers.add_parser("plot", help="Render a reusable plot from any CSV table.")
+    plot_source = plot.add_mutually_exclusive_group(required=True)
+    plot_source.add_argument("--table", help="Table reference or file_id.")
+    plot_source.add_argument("--csv", type=Path, help="Path to any CSV file.")
+    plot.add_argument(
+        "--kind",
+        choices=("scatter", "line", "bar", "hist", "violin", "bubble", "heatmap"),
+        required=True,
+    )
+    plot.add_argument("--x")
+    plot.add_argument("--y")
+    plot.add_argument("--value")
+    plot.add_argument("--color")
+    plot.add_argument("--size")
+    plot.add_argument("--label")
+    plot.add_argument("--top-labels", type=int, default=0)
+    plot.add_argument("--where", action="append", default=[], help="Exact filter: column=value.")
+    plot.add_argument("--contains", action="append", default=[], help="Substring filter: column=text.")
+    plot.add_argument("--limit", type=int)
+    plot.add_argument("--title")
+    plot.add_argument("--xlabel")
+    plot.add_argument("--ylabel")
+    plot.add_argument("--log-x", action="store_true")
+    plot.add_argument("--log-y", action="store_true")
+    plot.add_argument("--width", type=float, default=7.0)
+    plot.add_argument("--height", type=float, default=5.0)
+    plot.add_argument("--dpi", type=int, default=300)
+    plot.add_argument("--output", type=Path, required=True, help="Output path without suffix.")
+    plot.add_argument("--formats", default="png", help="Comma-separated: png,pdf,svg.")
+    plot.set_defaults(func=cmd_plot)
+
     args = parser.parse_args(argv)
-    data = FruitloopsData(args.data_dir or default_data_dir())
+    data = None if args.command == "plot" and args.csv else FruitloopsData(args.data_dir or default_data_dir())
     return args.func(args, data)
 
 
@@ -235,6 +268,48 @@ def cmd_compare(args: argparse.Namespace, data: FruitloopsData) -> int:
     columns = list(rows[0].keys()) if rows else data.resolve("comparison:matched_ln_class_similarity").columns
     emit_rows(rows, columns, args.format)
     return 0
+
+
+def cmd_plot(args: argparse.Namespace, data: FruitloopsData | None) -> int:
+    exact = parse_filters(args.where)
+    contains = parse_filters(args.contains)
+    if args.csv:
+        source_rows = load_csv_rows(args.csv)
+    else:
+        if data is None:
+            raise ValueError("--table requires a data manifest")
+        source_rows = data.open_table(data.resolve(args.table))
+    rows = [row for row in source_rows if matches(row, exact, contains)]
+    spec = PlotSpec(
+        kind=args.kind,
+        x=args.x,
+        y=args.y,
+        value=args.value,
+        color=args.color,
+        size=args.size,
+        label=args.label,
+        top_labels=args.top_labels,
+        title=args.title,
+        xlabel=args.xlabel,
+        ylabel=args.ylabel,
+        log_x=args.log_x,
+        log_y=args.log_y,
+        width=args.width,
+        height=args.height,
+        dpi=args.dpi,
+        output=args.output,
+        formats=tuple(split_csv(args.formats)),
+        limit=args.limit,
+    )
+    paths = render_plot(rows, spec)
+    for path in paths:
+        print(path)
+    return 0
+
+
+def load_csv_rows(path: Path) -> list[dict[str, str]]:
+    with path.expanduser().open(newline="") as handle:
+        return list(csv.DictReader(handle))
 
 
 def ln_candidate_tables(data: FruitloopsData, dataset: str | None) -> list[TableInfo]:

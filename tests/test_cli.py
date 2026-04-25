@@ -6,8 +6,10 @@ import unittest
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
 from fruitloops.cli import main
+from fruitloops.plotting import PlotSpec
 
 
 class CliTest(unittest.TestCase):
@@ -79,6 +81,34 @@ class CliTest(unittest.TestCase):
             )
 
         self.assertIn("L,ipsi,2,5", output)
+
+    def test_plot_spec_defaults_to_png(self) -> None:
+        spec = PlotSpec(kind="scatter", x="x", y="y")
+
+        self.assertEqual(spec.formats, ("png",))
+
+    def test_plot_accepts_csv_path_without_data_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "table.csv"
+            write_csv(path, [{"score": "0.1"}, {"score": "0.2"}])
+
+            with patch("fruitloops.cli.render_plot", return_value=[]) as render:
+                output = run_cli(
+                    "--data-dir",
+                    str(Path(tmp) / "missing-data"),
+                    "plot",
+                    "--csv",
+                    str(path),
+                    "--kind",
+                    "hist",
+                    "--value",
+                    "score",
+                    "--output",
+                    str(Path(tmp) / "hist"),
+                )
+
+        self.assertEqual(output, "")
+        self.assertEqual(len(render.call_args.args[0]), 2)
 
 
 def run_cli(*args: str) -> str:

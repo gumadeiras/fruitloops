@@ -80,6 +80,54 @@ Pull the reconciled hemibrain/FlyWire comparison:
 fruitloops compare il3LN6 --format json
 ```
 
+## Generic Plotting
+
+Plotting is reusable and table-agnostic. Install the plotting extra when needed:
+
+```bash
+python -m pip install -e '.[plot]'
+```
+
+Render from any `fruitloops` table reference:
+
+```bash
+fruitloops plot \
+  --table comparison:matched_ln_class_similarity \
+  --kind scatter \
+  --x hemibrain_mean_contra_preference \
+  --y flywire_mean_contra_preference \
+  --label LN_class \
+  --top-labels 8 \
+  --output outputs/contra_preference_scatter \
+  --formats png,svg
+```
+
+Or render from any CSV path:
+
+```bash
+fruitloops plot \
+  --csv path/to/table.csv \
+  --kind scatter \
+  --x x_column \
+  --y y_column \
+  --output outputs/my_scatter
+```
+
+Other generic plot kinds:
+
+```bash
+fruitloops plot --table comparison:matched_ln_class_similarity --kind bar --x LN_class --y orn_input_distribution_correlation --output outputs/orn_corr_bar
+fruitloops plot --table flywire:source_audit/orn_partner_counts_by_hemisphere --kind violin --x input_relation --value n_synapses --where LN_type=il3LN6 --output outputs/il3ln6_orn_violin
+fruitloops plot --table flywire:source_audit/orn_partner_counts_by_hemisphere --kind heatmap --x glomerulus --y input_relation --value n_synapses --where LN_type=il3LN6 --output outputs/il3ln6_orn_heatmap
+fruitloops plot --table comparison:matched_ln_class_similarity --kind bubble --x orn_input_distribution_correlation --y pn_output_distribution_correlation --size flywire_orn_input_total --color flywire_contra_fraction --label LN_class --output outputs/similarity_bubble
+```
+
+The wrapper script is equivalent:
+
+```bash
+python scripts/plot_csv.py --csv path/to/table.csv --kind hist --value score --output outputs/score_hist
+```
+
 ## Output Formats
 
 Most commands support `--format table`, `--format csv`, `--format json`, or

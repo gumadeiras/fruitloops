@@ -12,6 +12,9 @@ license = { text = "MIT" }
 authors = [{ name = "Gustavo Madeira Santana" }]
 dependencies = []
 
+[project.optional-dependencies]
+plot = ["matplotlib>=3.7"]
+
 [project.scripts]
 fruitloops = "fruitloops.cli:main"
 
