@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fruitloops"
+version = "0.1.0"
+description = "Agent-friendly CLI for querying local connectome analysis tables."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Gustavo Madeira Santana" }]
+dependencies = []
+
+[project.scripts]
+fruitloops = "fruitloops.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["fruitloops*"]
