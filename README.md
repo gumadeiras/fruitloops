@@ -193,6 +193,50 @@ fruitloops offline fetch --dataset flywire --action tables --offline-only
 fruitloops offline fetch --dataset hemibrain --action neurons --type-contains il3LN6 --limit 5
 ```
 
+## Bulk Offline Releases
+
+Bulk releases should be the primary offline source when you need broad
+connectivity, with live/cache queries only filling gaps.
+
+List known public release files:
+
+```bash
+fruitloops bulk sources
+```
+
+Download the practical FlyWire connection table first:
+
+```bash
+fruitloops bulk download --dataset flywire --kind proofread-connections
+```
+
+Optional larger downloads:
+
+```bash
+fruitloops bulk download --dataset flywire --kind synapses
+fruitloops bulk download --dataset hemibrain --kind neo4j-inputs
+```
+
+Import CSV/Parquet/Feather into local DuckDB:
+
+```bash
+python -m pip install -e '.[bulk]'
+fruitloops bulk import \
+  --path bulk/raw/flywire/proofread_connections_783.feather \
+  --table flywire_proofread_connections \
+  --replace
+fruitloops bulk tables
+fruitloops bulk query --table flywire_proofread_connections --limit 10 --format csv
+```
+
+Hemibrain's Neo4j bundle is a zip of CSVs; extract first, then import the CSVs
+you need:
+
+```bash
+fruitloops bulk extract --path bulk/raw/hemibrain/hemibrain_v1.2_neo4j_inputs.zip
+fruitloops bulk import --path bulk/extracted/hemibrain_v1.2_neo4j_inputs/<file>.csv --table hemibrain_<name>
+```
+
 ## Output Formats
 
 Most commands support `--format table`, `--format csv`, `--format json`, or

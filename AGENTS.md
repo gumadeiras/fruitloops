@@ -91,6 +91,27 @@ Force update:
 python3 -m fruitloops offline fetch ... --refresh
 ```
 
+## Bulk Offline Releases
+
+For broad connectivity, prefer public bulk releases over live APIs.
+
+```bash
+python3 -m fruitloops bulk sources
+python3 -m fruitloops bulk download --dataset flywire --kind proofread-connections
+python3 -m pip install -e '.[bulk]'
+python3 -m fruitloops bulk import \
+  --path bulk/raw/flywire/proofread_connections_783.feather \
+  --table flywire_proofread_connections \
+  --replace
+python3 -m fruitloops bulk query --table flywire_proofread_connections --limit 10 --format csv
+```
+
+Known large sources:
+
+- FlyWire `proofread-connections`: practical neuron-neuron connectivity table.
+- FlyWire `synapses`: full synapse-level table, very large.
+- Hemibrain `neo4j-inputs`: full neuPrint import CSV bundle.
+
 ## Live APIs
 
 Use live APIs only when local snapshot/cache lacks the answer.
