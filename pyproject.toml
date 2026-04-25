@@ -13,6 +13,7 @@ authors = [{ name = "Gustavo Madeira Santana" }]
 dependencies = []
 
 [project.optional-dependencies]
+bulk = ["duckdb>=1.1", "pyarrow>=14"]
 live = ["caveclient", "neuprint-python"]
 plot = ["matplotlib>=3.7"]
 

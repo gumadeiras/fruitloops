@@ -5,6 +5,16 @@ import csv
 from pathlib import Path
 
 from .aggregate import aggregate_rows
+from .bulk import (
+    DEFAULT_BULK_DIR,
+    DEFAULT_DUCKDB_PATH,
+    download_source,
+    extract_zip_csvs,
+    import_to_duckdb,
+    list_sources,
+    query_duckdb,
+    table_summary,
+)
 from .cache import DEFAULT_CACHE_DIR, get_or_fetch, list_cache
 from .connectome import comparison_rows, partner_rows
 from .data import FruitloopsData, TableInfo, default_data_dir
@@ -231,6 +241,46 @@ def main(argv: list[str] | None = None) -> int:
     offline_fetch.add_argument("--offline-only", action="store_true", help="Fail closed on cache miss.")
     offline_fetch.add_argument("--format", choices=FORMATS, default="table")
     offline_fetch.set_defaults(func=cmd_offline_fetch)
+
+    bulk = subparsers.add_parser("bulk", help="Download/import/query bulk offline releases.")
+    bulk.add_argument("--bulk-dir", type=Path, default=DEFAULT_BULK_DIR)
+    bulk.add_argument("--store", type=Path, default=DEFAULT_DUCKDB_PATH)
+    bulk_subparsers = bulk.add_subparsers(dest="bulk_action", required=True)
+
+    bulk_sources = bulk_subparsers.add_parser("sources", help="List known bulk data sources.")
+    bulk_sources.add_argument("--format", choices=FORMATS, default="table")
+    bulk_sources.set_defaults(func=cmd_bulk_sources)
+
+    bulk_download = bulk_subparsers.add_parser("download", help="Download a known bulk source.")
+    bulk_download.add_argument("--dataset", choices=("hemibrain", "flywire"), required=True)
+    bulk_download.add_argument("--kind", required=True)
+    bulk_download.add_argument("--force", action="store_true")
+    bulk_download.set_defaults(func=cmd_bulk_download)
+
+    bulk_import = bulk_subparsers.add_parser("import", help="Import a CSV/Parquet/Feather file into DuckDB.")
+    bulk_import.add_argument("--path", type=Path, required=True)
+    bulk_import.add_argument("--table", required=True)
+    bulk_import.add_argument("--replace", action="store_true")
+    bulk_import.set_defaults(func=cmd_bulk_import)
+
+    bulk_extract = bulk_subparsers.add_parser("extract", help="Extract CSVs from a downloaded zip bundle.")
+    bulk_extract.add_argument("--path", type=Path, required=True)
+    bulk_extract.add_argument("--output-dir", type=Path)
+    bulk_extract.add_argument("--force", action="store_true")
+    bulk_extract.add_argument("--format", choices=FORMATS, default="table")
+    bulk_extract.set_defaults(func=cmd_bulk_extract)
+
+    bulk_tables = bulk_subparsers.add_parser("tables", help="List imported DuckDB tables.")
+    bulk_tables.add_argument("--format", choices=FORMATS, default="table")
+    bulk_tables.set_defaults(func=cmd_bulk_tables)
+
+    bulk_query = bulk_subparsers.add_parser("query", help="Query imported DuckDB tables.")
+    bulk_query.add_argument("--table", required=True)
+    bulk_query.add_argument("--where", action="append", default=[], help="Exact filter: column=value.")
+    bulk_query.add_argument("--select")
+    bulk_query.add_argument("--limit", type=int, default=50)
+    bulk_query.add_argument("--format", choices=FORMATS, default="table")
+    bulk_query.set_defaults(func=cmd_bulk_query)
 
     args = parser.parse_args(argv)
     load_env_file(args.env_file)
@@ -509,6 +559,61 @@ def cmd_offline_fetch(args: argparse.Namespace, data: FruitloopsData | None) -> 
     return 0
 
 
+def cmd_bulk_sources(args: argparse.Namespace, data: FruitloopsData | None) -> int:
+    rows = list_sources()
+    columns = ["dataset", "kind", "format", "filename", "table_name", "description", "url"]
+    emit_rows(rows, columns, args.format)
+    return 0
+
+
+def cmd_bulk_download(args: argparse.Namespace, data: FruitloopsData | None) -> int:
+    path = download_source(
+        dataset=args.dataset,
+        kind=args.kind,
+        output_dir=args.bulk_dir / "raw",
+        force=args.force,
+    )
+    print(path)
+    return 0
+
+
+def cmd_bulk_import(args: argparse.Namespace, data: FruitloopsData | None) -> int:
+    row = import_to_duckdb(
+        path=args.path,
+        table_name=args.table,
+        store=args.store,
+        replace=args.replace,
+    )
+    emit_rows([row], ["store", "table", "rows"], "table")
+    return 0
+
+
+def cmd_bulk_extract(args: argparse.Namespace, data: FruitloopsData | None) -> int:
+    output_dir = args.output_dir or args.bulk_dir / "extracted" / args.path.stem
+    paths = extract_zip_csvs(args.path, output_dir=output_dir, force=args.force)
+    rows = [{"path": str(path)} for path in paths]
+    emit_rows(rows, ["path"], args.format)
+    return 0
+
+
+def cmd_bulk_tables(args: argparse.Namespace, data: FruitloopsData | None) -> int:
+    rows = table_summary(args.store)
+    emit_rows(rows, ["table", "rows", "store"], args.format)
+    return 0
+
+
+def cmd_bulk_query(args: argparse.Namespace, data: FruitloopsData | None) -> int:
+    rows = query_duckdb(
+        store=args.store,
+        table=args.table,
+        select=split_csv(args.select),
+        where=parse_filters(args.where),
+        limit=args.limit,
+    )
+    emit_dynamic_rows(rows, args.format)
+    return 0
+
+
 def build_offline_fetch(args: argparse.Namespace):
     dataset = args.dataset
     action = args.action
@@ -592,7 +697,11 @@ def emit_dynamic_rows(rows: list[dict[str, str]], fmt: str) -> None:
 
 
 def command_uses_no_manifest(args: argparse.Namespace) -> bool:
-    return (args.command == "plot" and args.csv) or args.command in {"live", "offline"}
+    return (args.command == "plot" and args.csv) or args.command in {
+        "live",
+        "offline",
+        "bulk",
+    }
 
 
 def ln_candidate_tables(data: FruitloopsData, dataset: str | None) -> list[TableInfo]:

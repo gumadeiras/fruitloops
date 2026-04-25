@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from fruitloops.cli import main
+from fruitloops.bulk import list_sources, safe_identifier, where_clause
 from fruitloops.cache import get_or_fetch, list_cache
 from fruitloops.env import load_env_file
 from fruitloops.live import parse_in_filters, parse_ints
@@ -169,6 +170,20 @@ class CliTest(unittest.TestCase):
         self.assertEqual(rows, [])
         self.assertIsNone(entry)
         self.assertEqual(source, "miss")
+
+    def test_bulk_sources_include_primary_offline_tables(self) -> None:
+        rows = list_sources()
+        keys = {(row["dataset"], row["kind"]) for row in rows}
+
+        self.assertIn(("flywire", "proofread-connections"), keys)
+        self.assertIn(("hemibrain", "neo4j-inputs"), keys)
+
+    def test_bulk_identifier_and_where_clause_are_sanitized(self) -> None:
+        self.assertEqual(safe_identifier("pre.pt-root id"), "pre_pt_root_id")
+        clause, params = where_clause([("pre.pt-root id", "123")])
+
+        self.assertEqual(clause, " WHERE pre_pt_root_id = ?")
+        self.assertEqual(params, ["123"])
 
 
 def run_cli(*args: str) -> str:
