@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from fruitloops.cli import main
+from fruitloops.cache import get_or_fetch, list_cache
 from fruitloops.env import load_env_file
 from fruitloops.live import parse_in_filters, parse_ints
 from fruitloops.plotting import PlotSpec
@@ -131,6 +132,43 @@ class CliTest(unittest.TestCase):
     def test_live_id_and_filter_parsing(self) -> None:
         self.assertEqual(parse_ints(["1,2", "3"]), [1, 2, 3])
         self.assertEqual(parse_in_filters([("pre_pt_root_id", "1,2")]), {"pre_pt_root_id": [1, 2]})
+
+    def test_cache_fetches_once_then_reads_offline(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            calls = 0
+
+            def fetch() -> list[dict[str, str]]:
+                nonlocal calls
+                calls += 1
+                return [{"id": "1", "weight": "2"}]
+
+            cache_dir = Path(tmp) / "cache"
+            query = {"body_id": [1], "limit": 1}
+            rows, entry, source = get_or_fetch(cache_dir, "hemibrain", "neurons", query, fetch)
+            self.assertEqual(source, "live")
+            self.assertEqual(rows, [{"id": "1", "weight": "2"}])
+            self.assertIsNotNone(entry)
+
+            rows, _, source = get_or_fetch(cache_dir, "hemibrain", "neurons", query, fetch)
+            self.assertEqual(source, "cache")
+            self.assertEqual(rows, [{"id": "1", "weight": "2"}])
+            self.assertEqual(calls, 1)
+            self.assertEqual(len(list_cache(cache_dir)), 1)
+
+    def test_offline_only_misses_without_fetching(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            rows, entry, source = get_or_fetch(
+                Path(tmp),
+                "flywire",
+                "tables",
+                {},
+                lambda: [{"table": "synapses_nt_v1"}],
+                offline_only=True,
+            )
+
+        self.assertEqual(rows, [])
+        self.assertIsNone(entry)
+        self.assertEqual(source, "miss")
 
 
 def run_cli(*args: str) -> str:

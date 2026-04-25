@@ -170,6 +170,29 @@ python scripts/live_hemibrain.py neurons --type-contains il3LN6 --limit 5
 python scripts/live_flywire.py tables
 ```
 
+## Offline-First Live Cache
+
+Use `offline fetch` when you want local data first and live APIs only on cache
+miss. Results are saved under `cache/live/`, which is ignored by git.
+
+```bash
+fruitloops offline fetch \
+  --dataset flywire \
+  --action synapses \
+  --pre-root-id 720575940623636701 \
+  --limit 10 \
+  --format csv
+```
+
+Repeat the same command to read the cached CSV. Use `--offline-only` to fail
+instead of hitting the network, or `--refresh` to force a live re-fetch.
+
+```bash
+fruitloops offline list
+fruitloops offline fetch --dataset flywire --action tables --offline-only
+fruitloops offline fetch --dataset hemibrain --action neurons --type-contains il3LN6 --limit 5
+```
+
 ## Output Formats
 
 Most commands support `--format table`, `--format csv`, `--format json`, or

@@ -5,6 +5,7 @@ import csv
 from pathlib import Path
 
 from .aggregate import aggregate_rows
+from .cache import DEFAULT_CACHE_DIR, get_or_fetch, list_cache
 from .connectome import comparison_rows, partner_rows
 from .data import FruitloopsData, TableInfo, default_data_dir
 from .env import load_env_file
@@ -192,6 +193,44 @@ def main(argv: list[str] | None = None) -> int:
     fw_synapses.add_argument("--materialization-version", type=int)
     fw_synapses.add_argument("--format", choices=FORMATS, default="table")
     fw_synapses.set_defaults(func=cmd_live_flywire_synapses)
+
+    offline = subparsers.add_parser("offline", help="Offline-first live-query cache.")
+    offline.add_argument("--cache-dir", type=Path, default=DEFAULT_CACHE_DIR)
+    offline_subparsers = offline.add_subparsers(dest="offline_action", required=True)
+
+    offline_list = offline_subparsers.add_parser("list", help="List cached live queries.")
+    offline_list.add_argument("--format", choices=FORMATS, default="table")
+    offline_list.set_defaults(func=cmd_offline_list)
+
+    offline_fetch = offline_subparsers.add_parser(
+        "fetch",
+        help="Read cached result first; fetch live and save on miss.",
+    )
+    offline_fetch.add_argument("--dataset", choices=("hemibrain", "flywire"), required=True)
+    offline_fetch.add_argument(
+        "--action",
+        choices=("neurons", "connections", "cypher", "tables", "table", "synapses"),
+        required=True,
+    )
+    offline_fetch.add_argument("--body-id", action="append", default=[])
+    offline_fetch.add_argument("--type-contains")
+    offline_fetch.add_argument("--instance-contains")
+    offline_fetch.add_argument("--upstream-body-id", action="append", default=[])
+    offline_fetch.add_argument("--downstream-body-id", action="append", default=[])
+    offline_fetch.add_argument("--min-weight", type=int, default=1)
+    offline_fetch.add_argument("--query")
+    offline_fetch.add_argument("--table")
+    offline_fetch.add_argument("--where", action="append", default=[])
+    offline_fetch.add_argument("--in", dest="in_filters", action="append", default=[])
+    offline_fetch.add_argument("--select")
+    offline_fetch.add_argument("--pre-root-id", action="append", default=[])
+    offline_fetch.add_argument("--post-root-id", action="append", default=[])
+    offline_fetch.add_argument("--limit", type=int, default=50)
+    offline_fetch.add_argument("--materialization-version", type=int)
+    offline_fetch.add_argument("--refresh", action="store_true", help="Bypass cache and fetch live.")
+    offline_fetch.add_argument("--offline-only", action="store_true", help="Fail closed on cache miss.")
+    offline_fetch.add_argument("--format", choices=FORMATS, default="table")
+    offline_fetch.set_defaults(func=cmd_offline_fetch)
 
     args = parser.parse_args(argv)
     load_env_file(args.env_file)
@@ -435,6 +474,113 @@ def cmd_live_flywire_synapses(args: argparse.Namespace, data: FruitloopsData | N
     return 0
 
 
+def cmd_offline_list(args: argparse.Namespace, data: FruitloopsData | None) -> int:
+    rows = [
+        {
+            "dataset": entry.dataset,
+            "action": entry.action,
+            "key": entry.key,
+            "rows": str(entry.rows),
+            "created_at": entry.created_at,
+            "path": str(entry.path),
+        }
+        for entry in list_cache(args.cache_dir)
+    ]
+    emit_rows(rows, ["dataset", "action", "key", "rows", "created_at", "path"], args.format)
+    return 0
+
+
+def cmd_offline_fetch(args: argparse.Namespace, data: FruitloopsData | None) -> int:
+    dataset, action, query, fetcher = build_offline_fetch(args)
+    rows, entry, source = get_or_fetch(
+        cache_dir=args.cache_dir,
+        dataset=dataset,
+        action=action,
+        query=query,
+        fetch=fetcher,
+        refresh=args.refresh,
+        offline_only=args.offline_only,
+    )
+    if source == "miss":
+        raise SystemExit("offline cache miss; rerun without --offline-only to fetch live")
+    emit_dynamic_rows(rows, args.format)
+    if args.format == "table" and entry is not None:
+        print(f"# source={source} cache={entry.path}")
+    return 0
+
+
+def build_offline_fetch(args: argparse.Namespace):
+    dataset = args.dataset
+    action = args.action
+    query = offline_query_payload(args)
+
+    if dataset == "hemibrain" and action == "neurons":
+        return dataset, action, query, lambda: hemibrain_fetch_neurons(
+            body_ids=parse_ints(args.body_id),
+            type_contains=args.type_contains,
+            instance_contains=args.instance_contains,
+            limit=args.limit,
+        )
+    if dataset == "hemibrain" and action == "connections":
+        return dataset, action, query, lambda: hemibrain_fetch_connections(
+            upstream_body_ids=parse_ints(args.upstream_body_id),
+            downstream_body_ids=parse_ints(args.downstream_body_id),
+            min_weight=args.min_weight,
+            limit=args.limit,
+        )
+    if dataset == "hemibrain" and action == "cypher":
+        if not args.query:
+            raise ValueError("hemibrain cypher requires --query")
+        return dataset, action, query, lambda: hemibrain_custom(args.query, limit=args.limit)
+    if dataset == "flywire" and action == "tables":
+        return dataset, action, query, flywire_tables
+    if dataset == "flywire" and action == "table":
+        if not args.table:
+            raise ValueError("flywire table requires --table")
+        return dataset, action, query, lambda: flywire_table(
+            table=args.table,
+            exact_filters=parse_filters(args.where),
+            in_filters=parse_filters(args.in_filters),
+            select_columns=split_csv(args.select),
+            limit=args.limit,
+            materialization_version=args.materialization_version,
+        )
+    if dataset == "flywire" and action == "synapses":
+        return dataset, action, query, lambda: flywire_synapses(
+            pre_root_ids=parse_ints(args.pre_root_id),
+            post_root_ids=parse_ints(args.post_root_id),
+            limit=args.limit,
+            materialization_version=args.materialization_version,
+        )
+    raise ValueError(f"unsupported offline fetch: {dataset} {action}")
+
+
+def offline_query_payload(args: argparse.Namespace) -> dict[str, object]:
+    keys = (
+        "body_id",
+        "type_contains",
+        "instance_contains",
+        "upstream_body_id",
+        "downstream_body_id",
+        "min_weight",
+        "query",
+        "table",
+        "where",
+        "in_filters",
+        "select",
+        "pre_root_id",
+        "post_root_id",
+        "limit",
+        "materialization_version",
+    )
+    payload = {}
+    for key in keys:
+        value = getattr(args, key)
+        if value not in (None, [], ""):
+            payload[key] = value
+    return payload
+
+
 def load_csv_rows(path: Path) -> list[dict[str, str]]:
     with path.expanduser().open(newline="") as handle:
         return list(csv.DictReader(handle))
@@ -446,7 +592,7 @@ def emit_dynamic_rows(rows: list[dict[str, str]], fmt: str) -> None:
 
 
 def command_uses_no_manifest(args: argparse.Namespace) -> bool:
-    return (args.command == "plot" and args.csv) or args.command == "live"
+    return (args.command == "plot" and args.csv) or args.command in {"live", "offline"}
 
 
 def ln_candidate_tables(data: FruitloopsData, dataset: str | None) -> list[TableInfo]:
