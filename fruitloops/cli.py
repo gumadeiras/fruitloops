@@ -15,6 +15,7 @@ from .bulk import (
     create_common_views,
     import_to_duckdb,
     list_sources,
+    optimize_connection_table,
     partner_rows as bulk_partner_rows,
     query_duckdb,
     schema_duckdb,
@@ -318,6 +319,12 @@ def main(argv: list[str] | None = None) -> int:
     bulk_views.add_argument("--prefix")
     bulk_views.add_argument("--format", choices=FORMATS, default="table")
     bulk_views.set_defaults(func=cmd_bulk_views)
+
+    bulk_optimize = bulk_subparsers.add_parser("optimize", help="Add indexes/statistics for a connection table.")
+    bulk_optimize.add_argument("--table", required=True)
+    bulk_optimize.add_argument("--prefix")
+    bulk_optimize.add_argument("--format", choices=FORMATS, default="table")
+    bulk_optimize.set_defaults(func=cmd_bulk_optimize)
 
     args = parser.parse_args(argv)
     load_env_file(args.env_file)
@@ -716,6 +723,12 @@ def fetch_bulk_partner_rows(args: argparse.Namespace, direction: str) -> list[di
 def cmd_bulk_views(args: argparse.Namespace, data: FruitloopsData | None) -> int:
     rows = create_common_views(args.store, args.table, prefix=args.prefix)
     emit_rows(rows, ["view", "store"], args.format)
+    return 0
+
+
+def cmd_bulk_optimize(args: argparse.Namespace, data: FruitloopsData | None) -> int:
+    rows = optimize_connection_table(args.store, args.table, prefix=args.prefix)
+    emit_rows(rows, ["action", "name", "column", "store"], args.format)
     return 0
 
 

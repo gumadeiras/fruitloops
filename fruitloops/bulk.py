@@ -186,15 +186,24 @@ def import_to_duckdb(
 
 def import_feather(connection, path: Path, table_name: str) -> None:
     try:
-        import pyarrow.feather as feather
+        import pyarrow as pa
+        import pyarrow.ipc as ipc
     except ImportError as exc:
         raise SystemExit(
             "Feather import requires pyarrow. Install with `python -m pip install -e '.[bulk]'`."
         ) from exc
-    table = feather.read_table(path)
-    connection.register("_fruitloops_arrow_import", table)
-    connection.execute(f"CREATE TABLE {table_name} AS SELECT * FROM _fruitloops_arrow_import")
-    connection.unregister("_fruitloops_arrow_import")
+    with pa.memory_map(str(path), "r") as source:
+        reader = ipc.open_file(source)
+        for index in range(reader.num_record_batches):
+            table = pa.Table.from_batches([reader.get_batch(index)])
+            connection.register("_fruitloops_arrow_import", table)
+            if index == 0:
+                connection.execute(
+                    f"CREATE TABLE {table_name} AS SELECT * FROM _fruitloops_arrow_import"
+                )
+            else:
+                connection.execute(f"INSERT INTO {table_name} SELECT * FROM _fruitloops_arrow_import")
+            connection.unregister("_fruitloops_arrow_import")
 
 
 def query_duckdb(
@@ -358,6 +367,44 @@ def create_common_views(store: Path, table: str, prefix: str | None = None) -> l
         )
         created.append({"view": f"{prefix}_partners", "store": str(store)})
     return created
+
+
+def optimize_connection_table(
+    store: Path,
+    table: str,
+    prefix: str | None = None,
+) -> list[dict[str, str]]:
+    duckdb = require_duckdb("optimize")
+    table = safe_identifier(table)
+    prefix = safe_identifier(prefix or table)
+    cols = connection_columns(store, table)
+    index_columns = {
+        "pre": cols["pre"],
+        "post": cols["post"],
+        "weight": cols["weight"],
+        "roi": cols["roi"],
+    }
+    actions = []
+    with duckdb.connect(str(store)) as connection:
+        for role, column in index_columns.items():
+            if not column:
+                continue
+            index_name = safe_identifier(f"{prefix}_{role}_idx")
+            connection.execute(
+                f"CREATE INDEX IF NOT EXISTS {index_name} "
+                f"ON {table} ({safe_identifier(column)})"
+            )
+            actions.append(
+                {
+                    "action": "index",
+                    "name": index_name,
+                    "column": column,
+                    "store": str(store),
+                }
+            )
+        connection.execute(f"ANALYZE {table}")
+        actions.append({"action": "analyze", "name": table, "column": "", "store": str(store)})
+    return actions
 
 
 def run_sql(store: Path, sql: str, params: list[str | int]) -> list[dict[str, str]]:

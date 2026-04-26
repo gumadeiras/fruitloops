@@ -230,6 +230,18 @@ class CliTest(unittest.TestCase):
                 "--prefix",
                 "flywire_test",
             )
+            optimize_output = run_cli(
+                "bulk",
+                "--store",
+                str(store),
+                "optimize",
+                "--table",
+                "flywire_test_connections",
+                "--prefix",
+                "flywire_test",
+                "--format",
+                "csv",
+            )
             view_output = run_cli(
                 "bulk",
                 "--store",
@@ -248,6 +260,8 @@ class CliTest(unittest.TestCase):
             )
 
         self.assertIn("101,AL_R,7,1", output)
+        self.assertIn("index,flywire_test_pre_idx,pre_pt_root_id", optimize_output)
+        self.assertIn("analyze,flywire_test_connections,", optimize_output)
         self.assertIn("body_id,partner_id,direction,roi,total_weight,connection_rows", view_output)
 
 
