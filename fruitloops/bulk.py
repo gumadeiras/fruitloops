@@ -87,7 +87,7 @@ BULK_SOURCES = {
             url="https://storage.googleapis.com/hemibrain/v1.2/exported-traced-adjacencies-v1.2.tar.gz",
             filename="exported-traced-adjacencies-v1.2.tar.gz",
             format="tar.gz",
-            table_name="hemibrain_traced_adjacencies",
+            table_name="hemibrain_traced_roi_connections",
             description="Hemibrain v1.2 compact traced neuron adjacency CSV bundle.",
         ),
         BulkSource(
