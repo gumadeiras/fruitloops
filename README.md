@@ -15,6 +15,13 @@ data/
 
 ## Quick Use
 
+Install from GitHub with the extras you need:
+
+```bash
+python -m pip install "fruitloops @ git+https://github.com/gumadeiras/fruitloops.git"
+python -m pip install "fruitloops[bulk,live,plot] @ git+https://github.com/gumadeiras/fruitloops.git"
+```
+
 Run directly from the repository:
 
 ```bash
@@ -30,7 +37,7 @@ python -m fruitloops compare il3LN6 --format json
 For editable installation:
 
 ```bash
-python -m pip install -e .
+python -m pip install -e '.[bulk,live,plot]'
 fruitloops datasets
 ```
 
@@ -78,6 +85,20 @@ Pull the reconciled hemibrain/FlyWire comparison:
 
 ```bash
 fruitloops compare il3LN6 --format json
+```
+
+Useful LN workflow:
+
+```bash
+fruitloops ln il3LN6 --format csv
+fruitloops query --table flywire:source_audit/ln_observations_by_hemisphere --where LN_type=il3LN6 --format csv
+fruitloops aggregate \
+  --table flywire:source_audit/orn_partner_counts_by_hemisphere \
+  --where LN_type=il3LN6 \
+  --by analysis_hemisphere,input_relation \
+  --sum n_synapses \
+  --format csv
+fruitloops compare il3LN6 --format jsonl
 ```
 
 ## Generic Plotting
@@ -230,6 +251,13 @@ fruitloops bulk tables
 fruitloops bulk query --table flywire_proofread_connections --limit 10 --format csv
 ```
 
+Optimize imported connection tables before repeated partner queries:
+
+```bash
+fruitloops bulk optimize --table flywire_proofread_connections --prefix flywire
+fruitloops bulk optimize --table hemibrain_traced_roi_connections --prefix hemibrain
+```
+
 Agent-facing wrappers infer common pre/post/weight/ROI column names:
 
 ```bash
@@ -239,6 +267,7 @@ fruitloops bulk inputs --table flywire_proofread_connections --body-id ROOT --fo
 fruitloops bulk outputs --table flywire_proofread_connections --body-id ROOT --format csv
 fruitloops bulk partners --table flywire_proofread_connections --body-id ROOT --format json
 fruitloops bulk views --table flywire_proofread_connections --prefix flywire
+fruitloops bulk optimize --table flywire_proofread_connections --prefix flywire
 ```
 
 Hemibrain's compact adjacency and Neo4j bundles are CSV archives; extract first,
@@ -246,10 +275,40 @@ then import the CSVs you need:
 
 ```bash
 fruitloops bulk extract --path bulk/raw/hemibrain/exported-traced-adjacencies-v1.2.tar.gz
-fruitloops bulk import --path bulk/extracted/exported-traced-adjacencies-v1.2/<file>.csv --table hemibrain_<name>
+fruitloops bulk import \
+  --path bulk/extracted/exported-traced-adjacencies-v1.2/traced-roi-connections.csv \
+  --table hemibrain_traced_roi_connections \
+  --replace
+fruitloops bulk import \
+  --path bulk/extracted/exported-traced-adjacencies-v1.2/traced-total-connections.csv \
+  --table hemibrain_traced_total_connections \
+  --replace
+fruitloops bulk import \
+  --path bulk/extracted/exported-traced-adjacencies-v1.2/traced-neurons.csv \
+  --table hemibrain_traced_neurons \
+  --replace
 fruitloops bulk extract --path bulk/raw/hemibrain/hemibrain_v1.2_neo4j_inputs.zip
 fruitloops bulk import --path bulk/extracted/hemibrain_v1.2_neo4j_inputs/<file>.csv --table hemibrain_<name>
 ```
+
+End-to-end offline setup:
+
+```bash
+python -m pip install -e '.[bulk]'
+fruitloops bulk download --dataset flywire --kind proofread-connections
+fruitloops bulk import --path bulk/raw/flywire/proofread_connections_783.feather --table flywire_proofread_connections --replace
+fruitloops bulk optimize --table flywire_proofread_connections --prefix flywire
+fruitloops bulk download --dataset hemibrain --kind compact-adjacencies
+fruitloops bulk extract --path bulk/raw/hemibrain/exported-traced-adjacencies-v1.2.tar.gz
+fruitloops bulk import --path bulk/extracted/exported-traced-adjacencies-v1.2/traced-roi-connections.csv --table hemibrain_traced_roi_connections --replace
+fruitloops bulk optimize --table hemibrain_traced_roi_connections --prefix hemibrain
+fruitloops bulk tables
+```
+
+`flywire_synapses_783.feather` is much larger than the proofread connection
+table. Fruitloops streams Feather imports through Arrow record batches, but the
+resulting DuckDB database still needs enough local disk for the imported table
+and indexes.
 
 ## Output Formats
 

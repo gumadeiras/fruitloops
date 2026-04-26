@@ -11,6 +11,7 @@ Prefer local data before live APIs.
 - Prefer CSV/JSON/JSONL output for downstream analysis.
 - For large live/API results, use `offline fetch` so results are cached.
 - If data is missing locally, fetch once, cache it, then reuse cache.
+- For broad connectivity, use `bulk` DuckDB tables before live APIs.
 
 ## Local Snapshot
 
@@ -103,10 +104,31 @@ python3 -m fruitloops bulk import \
   --path bulk/raw/flywire/proofread_connections_783.feather \
   --table flywire_proofread_connections \
   --replace
+python3 -m fruitloops bulk optimize --table flywire_proofread_connections --prefix flywire
 python3 -m fruitloops bulk query --table flywire_proofread_connections --limit 10 --format csv
 python3 -m fruitloops bulk inputs --table flywire_proofread_connections --body-id ROOT --format csv
 python3 -m fruitloops bulk outputs --table flywire_proofread_connections --body-id ROOT --format csv
 python3 -m fruitloops bulk partners --table flywire_proofread_connections --body-id ROOT --format json
+```
+
+Hemibrain compact setup:
+
+```bash
+python3 -m fruitloops bulk download --dataset hemibrain --kind compact-adjacencies
+python3 -m fruitloops bulk extract --path bulk/raw/hemibrain/exported-traced-adjacencies-v1.2.tar.gz
+python3 -m fruitloops bulk import \
+  --path bulk/extracted/exported-traced-adjacencies-v1.2/traced-roi-connections.csv \
+  --table hemibrain_traced_roi_connections \
+  --replace
+python3 -m fruitloops bulk optimize --table hemibrain_traced_roi_connections --prefix hemibrain
+```
+
+LN workflow:
+
+```bash
+python3 -m fruitloops ln il3LN6 --format csv
+python3 -m fruitloops query --table flywire:source_audit/ln_observations_by_hemisphere --where LN_type=il3LN6 --format csv
+python3 -m fruitloops compare il3LN6 --format jsonl
 ```
 
 Known large sources:
