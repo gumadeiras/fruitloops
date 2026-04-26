@@ -104,12 +104,16 @@ python3 -m fruitloops bulk import \
   --table flywire_proofread_connections \
   --replace
 python3 -m fruitloops bulk query --table flywire_proofread_connections --limit 10 --format csv
+python3 -m fruitloops bulk inputs --table flywire_proofread_connections --body-id ROOT --format csv
+python3 -m fruitloops bulk outputs --table flywire_proofread_connections --body-id ROOT --format csv
+python3 -m fruitloops bulk partners --table flywire_proofread_connections --body-id ROOT --format json
 ```
 
 Known large sources:
 
 - FlyWire `proofread-connections`: practical neuron-neuron connectivity table.
 - FlyWire `synapses`: full synapse-level table, very large.
+- Hemibrain `compact-adjacencies`: practical compact traced-neuron CSV bundle.
 - Hemibrain `neo4j-inputs`: full neuPrint import CSV bundle.
 
 ## Live APIs

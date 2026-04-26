@@ -213,6 +213,7 @@ fruitloops bulk download --dataset flywire --kind proofread-connections
 Optional larger downloads:
 
 ```bash
+fruitloops bulk download --dataset hemibrain --kind compact-adjacencies
 fruitloops bulk download --dataset flywire --kind synapses
 fruitloops bulk download --dataset hemibrain --kind neo4j-inputs
 ```
@@ -229,10 +230,23 @@ fruitloops bulk tables
 fruitloops bulk query --table flywire_proofread_connections --limit 10 --format csv
 ```
 
-Hemibrain's Neo4j bundle is a zip of CSVs; extract first, then import the CSVs
-you need:
+Agent-facing wrappers infer common pre/post/weight/ROI column names:
 
 ```bash
+fruitloops bulk schema --table flywire_proofread_connections
+fruitloops bulk connections --table flywire_proofread_connections --pre-id ROOT --limit 20 --format csv
+fruitloops bulk inputs --table flywire_proofread_connections --body-id ROOT --format csv
+fruitloops bulk outputs --table flywire_proofread_connections --body-id ROOT --format csv
+fruitloops bulk partners --table flywire_proofread_connections --body-id ROOT --format json
+fruitloops bulk views --table flywire_proofread_connections --prefix flywire
+```
+
+Hemibrain's compact adjacency and Neo4j bundles are CSV archives; extract first,
+then import the CSVs you need:
+
+```bash
+fruitloops bulk extract --path bulk/raw/hemibrain/exported-traced-adjacencies-v1.2.tar.gz
+fruitloops bulk import --path bulk/extracted/exported-traced-adjacencies-v1.2/<file>.csv --table hemibrain_<name>
 fruitloops bulk extract --path bulk/raw/hemibrain/hemibrain_v1.2_neo4j_inputs.zip
 fruitloops bulk import --path bulk/extracted/hemibrain_v1.2_neo4j_inputs/<file>.csv --table hemibrain_<name>
 ```
