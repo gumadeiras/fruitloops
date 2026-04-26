@@ -101,6 +101,42 @@ fruitloops aggregate \
 fruitloops compare il3LN6 --format jsonl
 ```
 
+## Olfaction Offline Cache
+
+Build derived AL/LH/MB tables after importing bulk connectivity:
+
+```bash
+python -m pip install -e '.[bulk]'
+fruitloops olfaction build
+fruitloops olfaction tables
+```
+
+For complete names/classes/glomeruli, cache annotations once from live APIs and
+rebuild:
+
+```bash
+python -m pip install -e '.[bulk,live]'
+fruitloops olfaction cache-annotations --dataset hemibrain
+fruitloops olfaction cache-annotations --dataset flywire
+```
+
+The builder creates `olf_edges_by_neuropil`, `olf_edges_total` aggregated over
+AL/LH/MB, `olf_neuropil_membership`, `olf_neurons`, and `olf_provenance` in the
+DuckDB store. It uses imported annotation tables when available:
+
+- `hemibrain_olfaction_neuron_annotations` or `hemibrain_traced_neurons`
+- `flywire_hierarchical_neuron_annotations`
+- `flywire_neuron_information_v2`
+
+Example olfaction queries:
+
+```bash
+fruitloops olfaction neurons --dataset flywire --region AL --class ORN --format csv
+fruitloops olfaction pns --dataset hemibrain --glomerulus DM1 --format csv
+fruitloops olfaction orn-inputs --dataset hemibrain --glomerulus DM1 --by-side --format csv
+fruitloops olfaction edges --dataset flywire --region LH --min-synapses 5 --format csv
+```
+
 ## Generic Plotting
 
 Plotting is reusable and table-agnostic. Install the plotting extra when needed:

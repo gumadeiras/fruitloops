@@ -59,6 +59,34 @@ python3 -m fruitloops partners il3LN6 --dataset hemibrain --kind pn --format csv
 python3 -m fruitloops compare il3LN6 --format json
 ```
 
+## Olfaction Cache
+
+Use `olfaction` for AL/LH/MB questions. Build once from imported DuckDB bulk
+tables, then query offline:
+
+```bash
+python3 -m fruitloops olfaction build
+python3 -m fruitloops olfaction neurons --region AL --class ORN --format csv
+python3 -m fruitloops olfaction pns --glomerulus DM1 --format csv
+python3 -m fruitloops olfaction orn-inputs --glomerulus DM1 --by-side --format csv
+python3 -m fruitloops olfaction edges --region LH --min-synapses 5 --format csv
+```
+
+For complete labels, cache annotations once from live APIs, then query offline:
+
+```bash
+python3 -m fruitloops olfaction cache-annotations --dataset hemibrain
+python3 -m fruitloops olfaction cache-annotations --dataset flywire
+```
+
+Expected source tables:
+
+- `flywire_proofread_connections`
+- `hemibrain_traced_roi_connections`
+- `hemibrain_olfaction_neuron_annotations` or `hemibrain_traced_neurons`
+- optional FlyWire annotations: `flywire_hierarchical_neuron_annotations`,
+  `flywire_neuron_information_v2`
+
 ## Offline-First Live Fetch
 
 Requires local `.env` and live extras:

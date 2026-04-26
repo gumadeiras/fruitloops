@@ -1,0 +1,11 @@
+pt_root_id,classification_system,cell_type
+1001,cell_type,ORN_DM1_R
+1001,cell_class,ORN
+1002,cell_type,ORN_DM1_L
+1002,cell_class,ORN
+2001,cell_type,DM1_lPN_R
+2001,cell_class,PN
+3001,cell_type,lLN1_R
+3001,cell_class,LN
+4001,cell_type,KCg_R
+4001,cell_class,KC

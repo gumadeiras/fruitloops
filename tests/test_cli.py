@@ -264,6 +264,71 @@ class CliTest(unittest.TestCase):
         self.assertIn("analyze,flywire_test_connections,", optimize_output)
         self.assertIn("body_id,partner_id,direction,roi,total_weight,connection_rows", view_output)
 
+    @unittest.skipIf(importlib.util.find_spec("duckdb") is None, "duckdb not installed")
+    def test_olfaction_builds_offline_tables_and_orn_input_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Path(tmp) / "fixture.duckdb"
+            imports = [
+                ("tests/fixtures/bulk/flywire_olf_connections.csv", "flywire_proofread_connections"),
+                ("tests/fixtures/bulk/hemibrain_neurons.csv", "hemibrain_traced_neurons"),
+                ("tests/fixtures/bulk/flywire_hierarchical.csv", "flywire_hierarchical_neuron_annotations"),
+                ("tests/fixtures/bulk/flywire_neuron_info.csv", "flywire_neuron_information_v2"),
+            ]
+            for path, table in imports:
+                run_cli(
+                    "bulk",
+                    "--store",
+                    str(store),
+                    "import",
+                    "--path",
+                    path,
+                    "--table",
+                    table,
+                    "--replace",
+                )
+
+            build_output = run_cli(
+                "olfaction",
+                "--store",
+                str(store),
+                "build",
+                "--dataset",
+                "flywire",
+                "--format",
+                "csv",
+            )
+            pn_output = run_cli(
+                "olfaction",
+                "--store",
+                str(store),
+                "pns",
+                "--dataset",
+                "flywire",
+                "--glomerulus",
+                "DM1",
+                "--format",
+                "csv",
+            )
+            orn_input_output = run_cli(
+                "olfaction",
+                "--store",
+                str(store),
+                "orn-inputs",
+                "--dataset",
+                "flywire",
+                "--glomerulus",
+                "DM1",
+                "--by-side",
+                "--format",
+                "csv",
+            )
+
+        self.assertIn("flywire,flywire_proofread_connections,4,imported", build_output)
+        self.assertIn("all,olf_annotations,5,built", build_output)
+        self.assertIn("flywire,2001,DM1_lPN_R,,PN,DM1,R", pn_output)
+        self.assertIn("flywire,2001,DM1_lPN_R,DM1,1,12,R,R,ipsi", orn_input_output)
+        self.assertIn("flywire,2001,DM1_lPN_R,DM1,1,5,R,L,contra", orn_input_output)
+
 
 def run_cli(*args: str) -> str:
     output = StringIO()
