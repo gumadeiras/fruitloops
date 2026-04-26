@@ -8,11 +8,16 @@ from .aggregate import aggregate_rows
 from .bulk import (
     DEFAULT_BULK_DIR,
     DEFAULT_DUCKDB_PATH,
+    archive_stem,
     download_source,
-    extract_zip_csvs,
+    extract_archive_csvs,
+    connection_rows,
+    create_common_views,
     import_to_duckdb,
     list_sources,
+    partner_rows as bulk_partner_rows,
     query_duckdb,
+    schema_duckdb,
     table_summary,
 )
 from .cache import DEFAULT_CACHE_DIR, get_or_fetch, list_cache
@@ -263,7 +268,7 @@ def main(argv: list[str] | None = None) -> int:
     bulk_import.add_argument("--replace", action="store_true")
     bulk_import.set_defaults(func=cmd_bulk_import)
 
-    bulk_extract = bulk_subparsers.add_parser("extract", help="Extract CSVs from a downloaded zip bundle.")
+    bulk_extract = bulk_subparsers.add_parser("extract", help="Extract CSVs from a downloaded archive.")
     bulk_extract.add_argument("--path", type=Path, required=True)
     bulk_extract.add_argument("--output-dir", type=Path)
     bulk_extract.add_argument("--force", action="store_true")
@@ -274,6 +279,11 @@ def main(argv: list[str] | None = None) -> int:
     bulk_tables.add_argument("--format", choices=FORMATS, default="table")
     bulk_tables.set_defaults(func=cmd_bulk_tables)
 
+    bulk_schema = bulk_subparsers.add_parser("schema", help="Show imported DuckDB table schema.")
+    bulk_schema.add_argument("--table", required=True)
+    bulk_schema.add_argument("--format", choices=FORMATS, default="table")
+    bulk_schema.set_defaults(func=cmd_bulk_schema)
+
     bulk_query = bulk_subparsers.add_parser("query", help="Query imported DuckDB tables.")
     bulk_query.add_argument("--table", required=True)
     bulk_query.add_argument("--where", action="append", default=[], help="Exact filter: column=value.")
@@ -281,6 +291,45 @@ def main(argv: list[str] | None = None) -> int:
     bulk_query.add_argument("--limit", type=int, default=50)
     bulk_query.add_argument("--format", choices=FORMATS, default="table")
     bulk_query.set_defaults(func=cmd_bulk_query)
+
+    bulk_connections = bulk_subparsers.add_parser("connections", help="Query inferred connection table rows.")
+    bulk_connections.add_argument("--table", required=True)
+    bulk_connections.add_argument("--pre-id")
+    bulk_connections.add_argument("--post-id")
+    bulk_connections.add_argument("--min-weight", type=int, default=1)
+    bulk_connections.add_argument("--limit", type=int, default=50)
+    bulk_connections.add_argument("--format", choices=FORMATS, default="table")
+    bulk_connections.set_defaults(func=cmd_bulk_connections)
+
+    bulk_inputs = bulk_subparsers.add_parser("inputs", help="Query upstream partners for a body id.")
+    bulk_inputs.add_argument("--table", required=True)
+    bulk_inputs.add_argument("--body-id", required=True)
+    bulk_inputs.add_argument("--min-weight", type=int, default=1)
+    bulk_inputs.add_argument("--limit", type=int, default=50)
+    bulk_inputs.add_argument("--format", choices=FORMATS, default="table")
+    bulk_inputs.set_defaults(func=cmd_bulk_inputs)
+
+    bulk_outputs = bulk_subparsers.add_parser("outputs", help="Query downstream partners for a body id.")
+    bulk_outputs.add_argument("--table", required=True)
+    bulk_outputs.add_argument("--body-id", required=True)
+    bulk_outputs.add_argument("--min-weight", type=int, default=1)
+    bulk_outputs.add_argument("--limit", type=int, default=50)
+    bulk_outputs.add_argument("--format", choices=FORMATS, default="table")
+    bulk_outputs.set_defaults(func=cmd_bulk_outputs)
+
+    bulk_partners = bulk_subparsers.add_parser("partners", help="Query input and output partners for a body id.")
+    bulk_partners.add_argument("--table", required=True)
+    bulk_partners.add_argument("--body-id", required=True)
+    bulk_partners.add_argument("--min-weight", type=int, default=1)
+    bulk_partners.add_argument("--limit", type=int, default=50)
+    bulk_partners.add_argument("--format", choices=FORMATS, default="table")
+    bulk_partners.set_defaults(func=cmd_bulk_partners)
+
+    bulk_views = bulk_subparsers.add_parser("views", help="Create normalized edge/partner views.")
+    bulk_views.add_argument("--table", required=True)
+    bulk_views.add_argument("--prefix")
+    bulk_views.add_argument("--format", choices=FORMATS, default="table")
+    bulk_views.set_defaults(func=cmd_bulk_views)
 
     args = parser.parse_args(argv)
     load_env_file(args.env_file)
@@ -589,8 +638,8 @@ def cmd_bulk_import(args: argparse.Namespace, data: FruitloopsData | None) -> in
 
 
 def cmd_bulk_extract(args: argparse.Namespace, data: FruitloopsData | None) -> int:
-    output_dir = args.output_dir or args.bulk_dir / "extracted" / args.path.stem
-    paths = extract_zip_csvs(args.path, output_dir=output_dir, force=args.force)
+    output_dir = args.output_dir or args.bulk_dir / "extracted" / archive_stem(args.path)
+    paths = extract_archive_csvs(args.path, output_dir=output_dir, force=args.force)
     rows = [{"path": str(path)} for path in paths]
     emit_rows(rows, ["path"], args.format)
     return 0
@@ -599,6 +648,12 @@ def cmd_bulk_extract(args: argparse.Namespace, data: FruitloopsData | None) -> i
 def cmd_bulk_tables(args: argparse.Namespace, data: FruitloopsData | None) -> int:
     rows = table_summary(args.store)
     emit_rows(rows, ["table", "rows", "store"], args.format)
+    return 0
+
+
+def cmd_bulk_schema(args: argparse.Namespace, data: FruitloopsData | None) -> int:
+    rows = schema_duckdb(args.store, args.table)
+    emit_rows(rows, ["column", "type", "nullable"], args.format)
     return 0
 
 
@@ -611,6 +666,75 @@ def cmd_bulk_query(args: argparse.Namespace, data: FruitloopsData | None) -> int
         limit=args.limit,
     )
     emit_dynamic_rows(rows, args.format)
+    return 0
+
+
+def cmd_bulk_connections(args: argparse.Namespace, data: FruitloopsData | None) -> int:
+    rows = connection_rows(
+        store=args.store,
+        table=args.table,
+        pre_id=args.pre_id,
+        post_id=args.post_id,
+        min_weight=args.min_weight,
+        limit=args.limit,
+    )
+    emit_dynamic_rows(rows, args.format)
+    return 0
+
+
+def cmd_bulk_inputs(args: argparse.Namespace, data: FruitloopsData | None) -> int:
+    rows = bulk_partner_rows(
+        store=args.store,
+        table=args.table,
+        body_id=args.body_id,
+        direction="inputs",
+        min_weight=args.min_weight,
+        limit=args.limit,
+    )
+    emit_dynamic_rows(rows, args.format)
+    return 0
+
+
+def cmd_bulk_outputs(args: argparse.Namespace, data: FruitloopsData | None) -> int:
+    rows = bulk_partner_rows(
+        store=args.store,
+        table=args.table,
+        body_id=args.body_id,
+        direction="outputs",
+        min_weight=args.min_weight,
+        limit=args.limit,
+    )
+    emit_dynamic_rows(rows, args.format)
+    return 0
+
+
+def cmd_bulk_partners(args: argparse.Namespace, data: FruitloopsData | None) -> int:
+    inputs = bulk_partner_rows(
+        store=args.store,
+        table=args.table,
+        body_id=args.body_id,
+        direction="inputs",
+        min_weight=args.min_weight,
+        limit=args.limit,
+    )
+    outputs = bulk_partner_rows(
+        store=args.store,
+        table=args.table,
+        body_id=args.body_id,
+        direction="outputs",
+        min_weight=args.min_weight,
+        limit=args.limit,
+    )
+    rows = [{"direction": "input", **row} for row in inputs] + [
+        {"direction": "output", **row} for row in outputs
+    ]
+    emit_dynamic_rows(rows, args.format)
+    return 0
+
+
+def cmd_bulk_views(args: argparse.Namespace, data: FruitloopsData | None) -> int:
+    rows = create_common_views(args.store, args.table, prefix=args.prefix)
+    emit_rows(rows, ["view", "store"], args.format)
     return 0
 
 

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import csv
 import json
 import shutil
 import urllib.request
@@ -10,6 +9,26 @@ from pathlib import Path
 
 DEFAULT_BULK_DIR = Path("bulk")
 DEFAULT_DUCKDB_PATH = DEFAULT_BULK_DIR / "fruitloops.duckdb"
+PRE_COLUMNS = (
+    "pre_pt_root_id",
+    "pre_root_id",
+    "upstream_bodyId",
+    "upstream_bodyid",
+    "bodyId_pre",
+    "bodyid_pre",
+    "pre",
+)
+POST_COLUMNS = (
+    "post_pt_root_id",
+    "post_root_id",
+    "downstream_bodyId",
+    "downstream_bodyid",
+    "bodyId_post",
+    "bodyid_post",
+    "post",
+)
+WEIGHT_COLUMNS = ("n_synapses", "syn_count", "weight", "count", "synapses")
+ROI_COLUMNS = ("neuropil", "roi", "ROI", "region")
 
 
 @dataclass(frozen=True)
@@ -61,6 +80,15 @@ BULK_SOURCES = {
             format="feather",
             table_name="flywire_post_neuropil_counts",
             description="FlyWire postsynapse counts per neuron and neuropil.",
+        ),
+        BulkSource(
+            dataset="hemibrain",
+            kind="compact-adjacencies",
+            url="https://storage.googleapis.com/hemibrain/v1.2/exported-traced-adjacencies-v1.2.tar.gz",
+            filename="exported-traced-adjacencies-v1.2.tar.gz",
+            format="tar.gz",
+            table_name="hemibrain_traced_adjacencies",
+            description="Hemibrain v1.2 compact traced neuron adjacency CSV bundle.",
         ),
         BulkSource(
             dataset="hemibrain",
@@ -201,6 +229,26 @@ def query_duckdb(
         ]
 
 
+def schema_duckdb(store: Path, table: str) -> list[dict[str, str]]:
+    try:
+        import duckdb
+    except ImportError as exc:
+        raise SystemExit(
+            "bulk schema requires duckdb. Install with `python -m pip install -e '.[bulk]'`."
+        ) from exc
+    table = safe_identifier(table)
+    with duckdb.connect(str(store), read_only=True) as connection:
+        rows = connection.execute(f"DESCRIBE {table}").fetchall()
+    return [
+        {
+            "column": str(row[0]),
+            "type": str(row[1]),
+            "nullable": str(row[2]),
+        }
+        for row in rows
+    ]
+
+
 def table_summary(store: Path) -> list[dict[str, str]]:
     try:
         import duckdb
@@ -228,6 +276,151 @@ def table_summary(store: Path) -> list[dict[str, str]]:
         return out
 
 
+def connection_columns(store: Path, table: str) -> dict[str, str]:
+    columns = [row["column"] for row in schema_duckdb(store, table)]
+    return {
+        "pre": choose_column(columns, PRE_COLUMNS),
+        "post": choose_column(columns, POST_COLUMNS),
+        "weight": choose_column(columns, WEIGHT_COLUMNS),
+        "roi": choose_column(columns, ROI_COLUMNS, required=False),
+    }
+
+
+def connection_rows(
+    store: Path,
+    table: str,
+    pre_id: str | None = None,
+    post_id: str | None = None,
+    min_weight: int = 1,
+    limit: int = 50,
+) -> list[dict[str, str]]:
+    cols = connection_columns(store, table)
+    where = []
+    params: list[str | int] = []
+    if pre_id:
+        where.append(f"{safe_identifier(cols['pre'])} = ?")
+        params.append(pre_id)
+    if post_id:
+        where.append(f"{safe_identifier(cols['post'])} = ?")
+        params.append(post_id)
+    if cols["weight"]:
+        where.append(f"{safe_identifier(cols['weight'])} >= ?")
+        params.append(int(min_weight))
+    where_sql = f" WHERE {' AND '.join(where)}" if where else ""
+    order_sql = f" ORDER BY {safe_identifier(cols['weight'])} DESC" if cols["weight"] else ""
+    return run_sql(store, f"SELECT * FROM {safe_identifier(table)}{where_sql}{order_sql} LIMIT ?", params + [int(limit)])
+
+
+def partner_rows(
+    store: Path,
+    table: str,
+    body_id: str,
+    direction: str,
+    min_weight: int = 1,
+    limit: int = 50,
+) -> list[dict[str, str]]:
+    cols = connection_columns(store, table)
+    if not cols["weight"]:
+        raise ValueError(f"could not infer weight column for {table}")
+    if direction == "inputs":
+        body_col = cols["post"]
+        partner_col = cols["pre"]
+    elif direction == "outputs":
+        body_col = cols["pre"]
+        partner_col = cols["post"]
+    else:
+        raise ValueError(f"unsupported direction: {direction}")
+    roi_select = f", {safe_identifier(cols['roi'])} AS roi" if cols["roi"] else ""
+    roi_group = f", {safe_identifier(cols['roi'])}" if cols["roi"] else ""
+    sql = f"""
+    SELECT {safe_identifier(partner_col)} AS partner_id{roi_select},
+           sum({safe_identifier(cols['weight'])}) AS total_weight,
+           count(*) AS connection_rows
+    FROM {safe_identifier(table)}
+    WHERE {safe_identifier(body_col)} = ?
+      AND {safe_identifier(cols['weight'])} >= ?
+    GROUP BY {safe_identifier(partner_col)}{roi_group}
+    ORDER BY total_weight DESC
+    LIMIT ?
+    """
+    return run_sql(store, sql, [body_id, int(min_weight), int(limit)])
+
+
+def create_common_views(store: Path, table: str, prefix: str | None = None) -> list[dict[str, str]]:
+    try:
+        import duckdb
+    except ImportError as exc:
+        raise SystemExit(
+            "bulk views requires duckdb. Install with `python -m pip install -e '.[bulk]'`."
+        ) from exc
+    table = safe_identifier(table)
+    prefix = safe_identifier(prefix or table)
+    cols = connection_columns(store, table)
+    partner_roi_select = ", roi" if cols["roi"] else ""
+    partner_roi_group = ", roi" if cols["roi"] else ""
+    created = []
+    with duckdb.connect(str(store)) as connection:
+        connection.execute(
+            f"""
+            CREATE OR REPLACE VIEW {prefix}_edges AS
+            SELECT {safe_identifier(cols['pre'])} AS pre_id,
+                   {safe_identifier(cols['post'])} AS post_id,
+                   {safe_identifier(cols['weight']) if cols['weight'] else '1'} AS weight
+                   {view_roi_projection(cols['roi'])}
+            FROM {table}
+            """
+        )
+        created.append({"view": f"{prefix}_edges", "store": str(store)})
+        connection.execute(
+            f"""
+            CREATE OR REPLACE VIEW {prefix}_partners AS
+            SELECT pre_id AS body_id, post_id AS partner_id, 'output' AS direction{partner_roi_select},
+                   sum(weight) AS total_weight, count(*) AS connection_rows
+            FROM {prefix}_edges
+            GROUP BY pre_id, post_id{partner_roi_group}
+            UNION ALL
+            SELECT post_id AS body_id, pre_id AS partner_id, 'input' AS direction{partner_roi_select},
+                   sum(weight) AS total_weight, count(*) AS connection_rows
+            FROM {prefix}_edges
+            GROUP BY post_id, pre_id{partner_roi_group}
+            """
+        )
+        created.append({"view": f"{prefix}_partners", "store": str(store)})
+    return created
+
+
+def run_sql(store: Path, sql: str, params: list[str | int]) -> list[dict[str, str]]:
+    try:
+        import duckdb
+    except ImportError as exc:
+        raise SystemExit(
+            "bulk query requires duckdb. Install with `python -m pip install -e '.[bulk]'`."
+        ) from exc
+    with duckdb.connect(str(store), read_only=True) as connection:
+        result = connection.execute(sql, params)
+        columns = [item[0] for item in result.description]
+        return [
+            {column: "" if value is None else str(value) for column, value in zip(columns, row)}
+            for row in result.fetchall()
+        ]
+
+
+def extract_archive_csvs(path: Path, output_dir: Path, force: bool = False) -> list[Path]:
+    if path.suffix == ".zip":
+        return extract_zip_csvs(path, output_dir, force)
+    if path.suffixes[-2:] == [".tar", ".gz"] or path.suffix == ".tgz":
+        return extract_tar_csvs(path, output_dir, force)
+    raise ValueError(f"unsupported archive format: {path}")
+
+
+def archive_stem(path: Path) -> str:
+    if path.suffixes[-2:] == [".tar", ".gz"]:
+        return path.name[: -len(".tar.gz")]
+    if path.suffix == ".tgz":
+        return path.name[: -len(".tgz")]
+    return path.stem
+
+
 def extract_zip_csvs(path: Path, output_dir: Path, force: bool = False) -> list[Path]:
     import zipfile
 
@@ -247,11 +440,53 @@ def extract_zip_csvs(path: Path, output_dir: Path, force: bool = False) -> list[
     return written
 
 
+def extract_tar_csvs(path: Path, output_dir: Path, force: bool = False) -> list[Path]:
+    import tarfile
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    written = []
+    with tarfile.open(path) as archive:
+        for member in archive.getmembers():
+            if not member.isfile() or not member.name.endswith(".csv"):
+                continue
+            target = output_dir / Path(member.name).name
+            if target.exists() and not force:
+                written.append(target)
+                continue
+            source = archive.extractfile(member)
+            if source is None:
+                continue
+            with source, target.open("wb") as dst:
+                shutil.copyfileobj(source, dst)
+            written.append(target)
+    return written
+
+
 def safe_identifier(value: str) -> str:
     cleaned = "".join(char if char.isalnum() or char == "_" else "_" for char in value)
     if not cleaned or cleaned[0].isdigit():
         cleaned = f"t_{cleaned}"
     return cleaned
+
+
+def choose_column(
+    columns: list[str],
+    candidates: tuple[str, ...],
+    required: bool = True,
+) -> str:
+    lookup = {column.lower(): column for column in columns}
+    for candidate in candidates:
+        if candidate.lower() in lookup:
+            return lookup[candidate.lower()]
+    if required:
+        raise ValueError(f"could not infer column from candidates {candidates}; columns={columns}")
+    return ""
+
+
+def view_roi_projection(column: str) -> str:
+    if not column:
+        return ""
+    return f", {safe_identifier(column)} AS roi"
 
 
 def where_clause(where: list[tuple[str, str]]) -> tuple[str, list[str]]:
@@ -263,12 +498,3 @@ def where_clause(where: list[tuple[str, str]]) -> tuple[str, list[str]]:
         clauses.append(f"{safe_identifier(column)} = ?")
         params.append(value)
     return " WHERE " + " AND ".join(clauses), params
-
-
-def write_manifest(path: Path, rows: list[dict[str, str]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fieldnames = sorted({key for row in rows for key in row})
-    with path.open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(rows)

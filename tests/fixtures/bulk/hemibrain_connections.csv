@@ -1,0 +1,5 @@
+upstream_bodyId,downstream_bodyId,roi,weight
+501,601,AL(R),11
+501,602,LH(R),4
+502,601,AL(R),8
+503,601,MB(+ACA)(R),2

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import importlib.util
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -9,7 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from fruitloops.cli import main
-from fruitloops.bulk import list_sources, safe_identifier, where_clause
+from fruitloops.bulk import archive_stem, list_sources, safe_identifier, where_clause
 from fruitloops.cache import get_or_fetch, list_cache
 from fruitloops.env import load_env_file
 from fruitloops.live import parse_in_filters, parse_ints
@@ -176,6 +177,7 @@ class CliTest(unittest.TestCase):
         keys = {(row["dataset"], row["kind"]) for row in rows}
 
         self.assertIn(("flywire", "proofread-connections"), keys)
+        self.assertIn(("hemibrain", "compact-adjacencies"), keys)
         self.assertIn(("hemibrain", "neo4j-inputs"), keys)
 
     def test_bulk_identifier_and_where_clause_are_sanitized(self) -> None:
@@ -184,6 +186,69 @@ class CliTest(unittest.TestCase):
 
         self.assertEqual(clause, " WHERE pre_pt_root_id = ?")
         self.assertEqual(params, ["123"])
+        self.assertEqual(
+            archive_stem(Path("exported-traced-adjacencies-v1.2.tar.gz")),
+            "exported-traced-adjacencies-v1.2",
+        )
+
+    @unittest.skipIf(importlib.util.find_spec("duckdb") is None, "duckdb not installed")
+    def test_bulk_import_and_partner_commands_with_fixture(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Path(tmp) / "fixture.duckdb"
+            fixture = Path("tests/fixtures/bulk/flywire_connections.csv")
+            run_cli(
+                "bulk",
+                "--store",
+                str(store),
+                "import",
+                "--path",
+                str(fixture),
+                "--table",
+                "flywire_test_connections",
+                "--replace",
+            )
+
+            output = run_cli(
+                "bulk",
+                "--store",
+                str(store),
+                "inputs",
+                "--table",
+                "flywire_test_connections",
+                "--body-id",
+                "201",
+                "--format",
+                "csv",
+            )
+            run_cli(
+                "bulk",
+                "--store",
+                str(store),
+                "views",
+                "--table",
+                "flywire_test_connections",
+                "--prefix",
+                "flywire_test",
+            )
+            view_output = run_cli(
+                "bulk",
+                "--store",
+                str(store),
+                "query",
+                "--table",
+                "flywire_test_partners",
+                "--where",
+                "body_id=201",
+                "--where",
+                "direction=input",
+                "--limit",
+                "1",
+                "--format",
+                "csv",
+            )
+
+        self.assertIn("101,AL_R,7,1", output)
+        self.assertIn("body_id,partner_id,direction,roi,total_weight,connection_rows", view_output)
 
 
 def run_cli(*args: str) -> str:

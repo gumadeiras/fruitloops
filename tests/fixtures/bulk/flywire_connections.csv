@@ -1,0 +1,5 @@
+pre_pt_root_id,post_pt_root_id,neuropil,n_synapses,nt_type
+101,201,AL_R,7,gaba
+101,202,AL_R,3,acetylcholine
+102,201,AL_L,5,glutamate
+103,201,LH_R,2,gaba
