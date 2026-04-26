@@ -15,6 +15,20 @@ data/
 
 ## Quick Use
 
+Install with Homebrew:
+
+```bash
+brew tap gumadeiras/tap
+brew install fruitloops
+```
+
+The brewed CLI installs lightweight by default. Add the bulk/live/plot Python
+dependencies into fruitloops' Homebrew virtualenv when needed:
+
+```bash
+fruitloops-install-extras
+```
+
 Install from GitHub with the extras you need:
 
 ```bash
