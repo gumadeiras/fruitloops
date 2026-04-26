@@ -160,12 +160,7 @@ def import_to_duckdb(
     store: Path = DEFAULT_DUCKDB_PATH,
     replace: bool = False,
 ) -> dict[str, str]:
-    try:
-        import duckdb
-    except ImportError as exc:
-        raise SystemExit(
-            "bulk import/query requires duckdb. Install with `python -m pip install -e '.[bulk]'`."
-        ) from exc
+    duckdb = require_duckdb("import/query")
     store.parent.mkdir(parents=True, exist_ok=True)
     table_name = safe_identifier(table_name)
     with duckdb.connect(str(store)) as connection:
@@ -209,12 +204,7 @@ def query_duckdb(
     where: list[tuple[str, str]],
     limit: int,
 ) -> list[dict[str, str]]:
-    try:
-        import duckdb
-    except ImportError as exc:
-        raise SystemExit(
-            "bulk query requires duckdb. Install with `python -m pip install -e '.[bulk]'`."
-        ) from exc
+    duckdb = require_duckdb("query")
     table = safe_identifier(table)
     select_sql = ", ".join(safe_identifier(column) for column in select) if select else "*"
     where_sql, params = where_clause(where)
@@ -222,20 +212,11 @@ def query_duckdb(
     params.append(int(limit))
     with duckdb.connect(str(store), read_only=True) as connection:
         result = connection.execute(sql, params)
-        columns = [item[0] for item in result.description]
-        return [
-            {column: "" if value is None else str(value) for column, value in zip(columns, row)}
-            for row in result.fetchall()
-        ]
+        return result_rows(result)
 
 
 def schema_duckdb(store: Path, table: str) -> list[dict[str, str]]:
-    try:
-        import duckdb
-    except ImportError as exc:
-        raise SystemExit(
-            "bulk schema requires duckdb. Install with `python -m pip install -e '.[bulk]'`."
-        ) from exc
+    duckdb = require_duckdb("schema")
     table = safe_identifier(table)
     with duckdb.connect(str(store), read_only=True) as connection:
         rows = connection.execute(f"DESCRIBE {table}").fetchall()
@@ -250,12 +231,7 @@ def schema_duckdb(store: Path, table: str) -> list[dict[str, str]]:
 
 
 def table_summary(store: Path) -> list[dict[str, str]]:
-    try:
-        import duckdb
-    except ImportError as exc:
-        raise SystemExit(
-            "bulk tables requires duckdb. Install with `python -m pip install -e '.[bulk]'`."
-        ) from exc
+    duckdb = require_duckdb("tables")
     if not store.exists():
         return []
     with duckdb.connect(str(store), read_only=True) as connection:
@@ -347,12 +323,7 @@ def partner_rows(
 
 
 def create_common_views(store: Path, table: str, prefix: str | None = None) -> list[dict[str, str]]:
-    try:
-        import duckdb
-    except ImportError as exc:
-        raise SystemExit(
-            "bulk views requires duckdb. Install with `python -m pip install -e '.[bulk]'`."
-        ) from exc
+    duckdb = require_duckdb("views")
     table = safe_identifier(table)
     prefix = safe_identifier(prefix or table)
     cols = connection_columns(store, table)
@@ -390,19 +361,28 @@ def create_common_views(store: Path, table: str, prefix: str | None = None) -> l
 
 
 def run_sql(store: Path, sql: str, params: list[str | int]) -> list[dict[str, str]]:
+    duckdb = require_duckdb("query")
+    with duckdb.connect(str(store), read_only=True) as connection:
+        result = connection.execute(sql, params)
+        return result_rows(result)
+
+
+def require_duckdb(action: str):
     try:
         import duckdb
     except ImportError as exc:
         raise SystemExit(
-            "bulk query requires duckdb. Install with `python -m pip install -e '.[bulk]'`."
+            f"bulk {action} requires duckdb. Install with `python -m pip install -e '.[bulk]'`."
         ) from exc
-    with duckdb.connect(str(store), read_only=True) as connection:
-        result = connection.execute(sql, params)
-        columns = [item[0] for item in result.description]
-        return [
-            {column: "" if value is None else str(value) for column, value in zip(columns, row)}
-            for row in result.fetchall()
-        ]
+    return duckdb
+
+
+def result_rows(result) -> list[dict[str, str]]:
+    columns = [item[0] for item in result.description]
+    return [
+        {column: "" if value is None else str(value) for column, value in zip(columns, row)}
+        for row in result.fetchall()
+    ]
 
 
 def extract_archive_csvs(path: Path, output_dir: Path, force: bool = False) -> list[Path]:
