@@ -302,27 +302,15 @@ def main(argv: list[str] | None = None) -> int:
     bulk_connections.set_defaults(func=cmd_bulk_connections)
 
     bulk_inputs = bulk_subparsers.add_parser("inputs", help="Query upstream partners for a body id.")
-    bulk_inputs.add_argument("--table", required=True)
-    bulk_inputs.add_argument("--body-id", required=True)
-    bulk_inputs.add_argument("--min-weight", type=int, default=1)
-    bulk_inputs.add_argument("--limit", type=int, default=50)
-    bulk_inputs.add_argument("--format", choices=FORMATS, default="table")
+    add_bulk_partner_args(bulk_inputs)
     bulk_inputs.set_defaults(func=cmd_bulk_inputs)
 
     bulk_outputs = bulk_subparsers.add_parser("outputs", help="Query downstream partners for a body id.")
-    bulk_outputs.add_argument("--table", required=True)
-    bulk_outputs.add_argument("--body-id", required=True)
-    bulk_outputs.add_argument("--min-weight", type=int, default=1)
-    bulk_outputs.add_argument("--limit", type=int, default=50)
-    bulk_outputs.add_argument("--format", choices=FORMATS, default="table")
+    add_bulk_partner_args(bulk_outputs)
     bulk_outputs.set_defaults(func=cmd_bulk_outputs)
 
     bulk_partners = bulk_subparsers.add_parser("partners", help="Query input and output partners for a body id.")
-    bulk_partners.add_argument("--table", required=True)
-    bulk_partners.add_argument("--body-id", required=True)
-    bulk_partners.add_argument("--min-weight", type=int, default=1)
-    bulk_partners.add_argument("--limit", type=int, default=50)
-    bulk_partners.add_argument("--format", choices=FORMATS, default="table")
+    add_bulk_partner_args(bulk_partners)
     bulk_partners.set_defaults(func=cmd_bulk_partners)
 
     bulk_views = bulk_subparsers.add_parser("views", help="Create normalized edge/partner views.")
@@ -335,6 +323,14 @@ def main(argv: list[str] | None = None) -> int:
     load_env_file(args.env_file)
     data = None if command_uses_no_manifest(args) else FruitloopsData(args.data_dir or default_data_dir())
     return args.func(args, data)
+
+
+def add_bulk_partner_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--table", required=True)
+    parser.add_argument("--body-id", required=True)
+    parser.add_argument("--min-weight", type=int, default=1)
+    parser.add_argument("--limit", type=int, default=50)
+    parser.add_argument("--format", choices=FORMATS, default="table")
 
 
 def cmd_datasets(args: argparse.Namespace, data: FruitloopsData) -> int:
@@ -683,53 +679,38 @@ def cmd_bulk_connections(args: argparse.Namespace, data: FruitloopsData | None) 
 
 
 def cmd_bulk_inputs(args: argparse.Namespace, data: FruitloopsData | None) -> int:
-    rows = bulk_partner_rows(
-        store=args.store,
-        table=args.table,
-        body_id=args.body_id,
-        direction="inputs",
-        min_weight=args.min_weight,
-        limit=args.limit,
-    )
-    emit_dynamic_rows(rows, args.format)
-    return 0
+    return emit_bulk_partner_direction(args, "inputs")
 
 
 def cmd_bulk_outputs(args: argparse.Namespace, data: FruitloopsData | None) -> int:
-    rows = bulk_partner_rows(
-        store=args.store,
-        table=args.table,
-        body_id=args.body_id,
-        direction="outputs",
-        min_weight=args.min_weight,
-        limit=args.limit,
-    )
+    return emit_bulk_partner_direction(args, "outputs")
+
+
+def emit_bulk_partner_direction(args: argparse.Namespace, direction: str) -> int:
+    rows = fetch_bulk_partner_rows(args, direction)
     emit_dynamic_rows(rows, args.format)
     return 0
 
 
 def cmd_bulk_partners(args: argparse.Namespace, data: FruitloopsData | None) -> int:
-    inputs = bulk_partner_rows(
-        store=args.store,
-        table=args.table,
-        body_id=args.body_id,
-        direction="inputs",
-        min_weight=args.min_weight,
-        limit=args.limit,
-    )
-    outputs = bulk_partner_rows(
-        store=args.store,
-        table=args.table,
-        body_id=args.body_id,
-        direction="outputs",
-        min_weight=args.min_weight,
-        limit=args.limit,
-    )
+    inputs = fetch_bulk_partner_rows(args, "inputs")
+    outputs = fetch_bulk_partner_rows(args, "outputs")
     rows = [{"direction": "input", **row} for row in inputs] + [
         {"direction": "output", **row} for row in outputs
     ]
     emit_dynamic_rows(rows, args.format)
     return 0
+
+
+def fetch_bulk_partner_rows(args: argparse.Namespace, direction: str) -> list[dict[str, str]]:
+    return bulk_partner_rows(
+        store=args.store,
+        table=args.table,
+        body_id=args.body_id,
+        direction=direction,
+        min_weight=args.min_weight,
+        limit=args.limit,
+    )
 
 
 def cmd_bulk_views(args: argparse.Namespace, data: FruitloopsData | None) -> int:
