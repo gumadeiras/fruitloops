@@ -29,11 +29,11 @@ dependencies into fruitloops' Homebrew virtualenv when needed:
 fruitloops-install-extras
 ```
 
-Install from GitHub with the extras you need:
+Install from PyPI:
 
 ```bash
-python -m pip install "fruitloops @ git+https://github.com/gumadeiras/fruitloops.git"
-python -m pip install "fruitloops[bulk,live,plot] @ git+https://github.com/gumadeiras/fruitloops.git"
+python -m pip install fruitloops
+python -m pip install 'fruitloops[bulk,live,plot]'
 ```
 
 Run directly from the repository:
