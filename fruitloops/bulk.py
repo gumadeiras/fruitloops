@@ -6,9 +6,10 @@ import urllib.request
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from .paths import default_bulk_dir, default_duckdb_path
 
-DEFAULT_BULK_DIR = Path("bulk")
-DEFAULT_DUCKDB_PATH = DEFAULT_BULK_DIR / "fruitloops.duckdb"
+DEFAULT_BULK_DIR = default_bulk_dir()
+DEFAULT_DUCKDB_PATH = default_duckdb_path()
 PRE_COLUMNS = (
     "pre_pt_root_id",
     "pre_root_id",

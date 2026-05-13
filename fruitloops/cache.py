@@ -8,8 +8,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
+from .paths import default_live_cache_dir
 
-DEFAULT_CACHE_DIR = Path("cache/live")
+DEFAULT_CACHE_DIR = default_live_cache_dir()
 
 
 @dataclass(frozen=True)

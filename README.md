@@ -55,6 +55,20 @@ python -m pip install -e '.[bulk,live,plot]'
 fruitloops datasets
 ```
 
+Fruitloops does not depend on the current working directory. Inspect the active
+paths with:
+
+```bash
+fruitloops locations
+```
+
+Path overrides:
+
+- `FRUITLOOPS_DATA_DIR`: generated CSV snapshot directory with `manifest.csv`
+- `FRUITLOOPS_BULK_DIR`: downloaded bulk files and extracted archives
+- `FRUITLOOPS_DUCKDB_PATH`: imported DuckDB database path
+- `FRUITLOOPS_CACHE_DIR`: live-query cache root
+
 ## Table References
 
 Tables can be referenced as:
@@ -293,10 +307,8 @@ Import CSV/Parquet/Feather into local DuckDB:
 
 ```bash
 python -m pip install -e '.[bulk]'
-fruitloops bulk import \
-  --path bulk/raw/flywire/proofread_connections_783.feather \
-  --table flywire_proofread_connections \
-  --replace
+flywire_path=$(fruitloops bulk download --dataset flywire --kind proofread-connections)
+fruitloops bulk import --path "$flywire_path" --table flywire_proofread_connections --replace
 fruitloops bulk tables
 fruitloops bulk query --table flywire_proofread_connections --limit 10 --format csv
 ```
@@ -324,34 +336,30 @@ Hemibrain's compact adjacency and Neo4j bundles are CSV archives; extract first,
 then import the CSVs you need:
 
 ```bash
-fruitloops bulk extract --path bulk/raw/hemibrain/exported-traced-adjacencies-v1.2.tar.gz
+hemibrain_path=$(fruitloops bulk download --dataset hemibrain --kind compact-adjacencies)
+fruitloops bulk extract --path "$hemibrain_path"
 fruitloops bulk import \
-  --path bulk/extracted/exported-traced-adjacencies-v1.2/traced-roi-connections.csv \
+  --path "$(fruitloops locations --format csv | awk -F, '$1=="bulk_dir"{print $2}')/extracted/exported-traced-adjacencies-v1.2/traced-roi-connections.csv" \
   --table hemibrain_traced_roi_connections \
   --replace
 fruitloops bulk import \
-  --path bulk/extracted/exported-traced-adjacencies-v1.2/traced-total-connections.csv \
+  --path "$(fruitloops locations --format csv | awk -F, '$1=="bulk_dir"{print $2}')/extracted/exported-traced-adjacencies-v1.2/traced-total-connections.csv" \
   --table hemibrain_traced_total_connections \
   --replace
 fruitloops bulk import \
-  --path bulk/extracted/exported-traced-adjacencies-v1.2/traced-neurons.csv \
+  --path "$(fruitloops locations --format csv | awk -F, '$1=="bulk_dir"{print $2}')/extracted/exported-traced-adjacencies-v1.2/traced-neurons.csv" \
   --table hemibrain_traced_neurons \
   --replace
-fruitloops bulk extract --path bulk/raw/hemibrain/hemibrain_v1.2_neo4j_inputs.zip
-fruitloops bulk import --path bulk/extracted/hemibrain_v1.2_neo4j_inputs/<file>.csv --table hemibrain_<name>
+neo4j_path=$(fruitloops bulk download --dataset hemibrain --kind neo4j-inputs)
+fruitloops bulk extract --path "$neo4j_path"
 ```
 
 End-to-end offline setup:
 
 ```bash
 python -m pip install -e '.[bulk]'
-fruitloops bulk download --dataset flywire --kind proofread-connections
-fruitloops bulk import --path bulk/raw/flywire/proofread_connections_783.feather --table flywire_proofread_connections --replace
-fruitloops bulk optimize --table flywire_proofread_connections --prefix flywire
-fruitloops bulk download --dataset hemibrain --kind compact-adjacencies
-fruitloops bulk extract --path bulk/raw/hemibrain/exported-traced-adjacencies-v1.2.tar.gz
-fruitloops bulk import --path bulk/extracted/exported-traced-adjacencies-v1.2/traced-roi-connections.csv --table hemibrain_traced_roi_connections --replace
-fruitloops bulk optimize --table hemibrain_traced_roi_connections --prefix hemibrain
+fruitloops bulk setup
+fruitloops olfaction build
 fruitloops bulk tables
 ```
 
@@ -367,12 +375,17 @@ Most commands support `--format table`, `--format csv`, `--format json`, or
 
 ## Rebuilding the Data Snapshot
 
-From the paper repository root:
+The lightweight CLI needs a generated CSV snapshot for `datasets`, `query`,
+`ln`, `partners`, and comparison commands. If an installed package does not
+ship the `data/` tree, point `FRUITLOOPS_DATA_DIR` at one or rebuild it from
+the paper repository.
+
+From the fruitloops repository root:
 
 ```bash
 python scripts/build_data_snapshot.py \
   --source "/path/to/widespread-direction-selectivity" \
-  --dest data
+  --dest "$(fruitloops locations --format csv | awk -F, '$1=="data_dir"{print $2}')"
 ```
 
 The script copies generated CSVs and rewrites `data/manifest.csv`.

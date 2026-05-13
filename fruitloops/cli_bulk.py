@@ -33,6 +33,15 @@ def add_bulk_parser(subparsers, formats: tuple[str, ...]) -> None:
     bulk_sources.add_argument("--format", choices=formats, default="table")
     bulk_sources.set_defaults(func=cmd_bulk_sources)
 
+    bulk_setup = bulk_subparsers.add_parser(
+        "setup",
+        help="Download and import the practical offline bulk tables.",
+    )
+    bulk_setup.add_argument("--dataset", choices=("hemibrain", "flywire"), action="append")
+    bulk_setup.add_argument("--replace", action=argparse.BooleanOptionalAction, default=True)
+    bulk_setup.add_argument("--format", choices=formats, default="table")
+    bulk_setup.set_defaults(func=cmd_bulk_setup)
+
     bulk_download = bulk_subparsers.add_parser("download", help="Download a known bulk source.")
     bulk_download.add_argument("--dataset", choices=("hemibrain", "flywire"), required=True)
     bulk_download.add_argument("--kind", required=True)
@@ -116,6 +125,98 @@ def cmd_bulk_sources(args: argparse.Namespace, data) -> int:
     columns = ["dataset", "kind", "format", "filename", "table_name", "description", "url"]
     emit_rows(rows, columns, args.format)
     return 0
+
+
+def cmd_bulk_setup(args: argparse.Namespace, data) -> int:
+    selected = args.dataset or ["flywire", "hemibrain"]
+    rows = []
+    for dataset in selected:
+        if dataset == "flywire":
+            rows.extend(setup_flywire(args))
+        elif dataset == "hemibrain":
+            rows.extend(setup_hemibrain(args))
+    emit_rows(rows, ["dataset", "action", "target", "status", "path", "store"], args.format)
+    return 0
+
+
+def setup_flywire(args: argparse.Namespace) -> list[dict[str, str]]:
+    rows = []
+    path = download_source(
+        dataset="flywire",
+        kind="proofread-connections",
+        output_dir=args.bulk_dir / "raw",
+    )
+    rows.append(setup_row("flywire", "download", "proofread-connections", "ok", path, args.store))
+    imported = import_to_duckdb(
+        path=path,
+        table_name="flywire_proofread_connections",
+        store=args.store,
+        replace=args.replace,
+    )
+    rows.append(setup_row("flywire", "import", imported["table"], imported["rows"], path, args.store))
+    rows.extend(setup_optimize_rows("flywire", "flywire_proofread_connections", "flywire", args.store))
+    return rows
+
+
+def setup_hemibrain(args: argparse.Namespace) -> list[dict[str, str]]:
+    rows = []
+    archive = download_source(
+        dataset="hemibrain",
+        kind="compact-adjacencies",
+        output_dir=args.bulk_dir / "raw",
+    )
+    rows.append(setup_row("hemibrain", "download", "compact-adjacencies", "ok", archive, args.store))
+    extracted = extract_archive_csvs(
+        archive,
+        output_dir=args.bulk_dir / "extracted" / archive_stem(archive),
+    )
+    rows.append(setup_row("hemibrain", "extract", archive_stem(archive), str(len(extracted)), archive, args.store))
+    paths = {path.name: path for path in extracted}
+    imports = {
+        "traced-roi-connections.csv": "hemibrain_traced_roi_connections",
+        "traced-total-connections.csv": "hemibrain_traced_total_connections",
+        "traced-neurons.csv": "hemibrain_traced_neurons",
+    }
+    for filename, table in imports.items():
+        path = paths[filename]
+        imported = import_to_duckdb(path=path, table_name=table, store=args.store, replace=args.replace)
+        rows.append(setup_row("hemibrain", "import", imported["table"], imported["rows"], path, args.store))
+    rows.extend(setup_optimize_rows("hemibrain", "hemibrain_traced_roi_connections", "hemibrain", args.store))
+    return rows
+
+
+def setup_optimize_rows(dataset: str, table: str, prefix: str, store: Path) -> list[dict[str, str]]:
+    rows = []
+    for row in optimize_connection_table(store, table, prefix=prefix):
+        rows.append(
+            setup_row(
+                dataset,
+                "optimize",
+                row.get("name", table),
+                row.get("action", "ok"),
+                Path(row.get("column", "")),
+                store,
+            )
+        )
+    return rows
+
+
+def setup_row(
+    dataset: str,
+    action: str,
+    target: str,
+    status: str,
+    path: Path,
+    store: Path,
+) -> dict[str, str]:
+    return {
+        "dataset": dataset,
+        "action": action,
+        "target": target,
+        "status": status,
+        "path": str(path),
+        "store": str(store),
+    }
 
 
 def cmd_bulk_download(args: argparse.Namespace, data) -> int:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import importlib.util
+import os
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -10,10 +11,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 from fruitloops.cli import main
-from fruitloops.bulk import archive_stem, list_sources, safe_identifier, where_clause
-from fruitloops.cache import get_or_fetch, list_cache
+from fruitloops.bulk import DEFAULT_DUCKDB_PATH, archive_stem, default_bulk_dir, list_sources, safe_identifier, where_clause
+from fruitloops.cache import DEFAULT_CACHE_DIR, get_or_fetch, list_cache
 from fruitloops.env import load_env_file
 from fruitloops.live import parse_in_filters, parse_ints
+from fruitloops.paths import default_duckdb_path, default_live_cache_dir
 from fruitloops.plotting import PlotSpec
 
 
@@ -22,7 +24,30 @@ class CliTest(unittest.TestCase):
         output = run_cli()
 
         self.assertIn("usage: fruitloops", output)
+        self.assertIn("locations", output)
         self.assertIn("datasets", output)
+
+    def test_locations_reports_absolute_paths(self) -> None:
+        output = run_cli("locations", "--format", "csv")
+
+        self.assertIn("name,path,exists,env", output)
+        self.assertIn(str(DEFAULT_DUCKDB_PATH), output)
+        self.assertTrue(DEFAULT_DUCKDB_PATH.is_absolute())
+        self.assertTrue(DEFAULT_CACHE_DIR.is_absolute())
+
+    def test_path_defaults_do_not_depend_on_cwd(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(
+            os.environ,
+            {
+                "FRUITLOOPS_BULK_DIR": str(Path(tmp) / "bulk"),
+                "FRUITLOOPS_DUCKDB_PATH": str(Path(tmp) / "custom.duckdb"),
+                "FRUITLOOPS_CACHE_DIR": str(Path(tmp) / "cache"),
+            },
+        ):
+            tmp_path = Path(tmp).resolve()
+            self.assertEqual(default_bulk_dir(), tmp_path / "bulk")
+            self.assertEqual(default_duckdb_path(), tmp_path / "custom.duckdb")
+            self.assertEqual(default_live_cache_dir(), tmp_path / "cache" / "live")
 
     def test_missing_required_arguments_print_command_help(self) -> None:
         self.assertIn("usage: fruitloops schema", run_cli("schema"))
@@ -205,6 +230,22 @@ class CliTest(unittest.TestCase):
         self.assertIn(("flywire", "proofread-connections"), keys)
         self.assertIn(("hemibrain", "compact-adjacencies"), keys)
         self.assertIn(("hemibrain", "neo4j-inputs"), keys)
+
+    def test_bulk_setup_wraps_download_import_and_optimize(self) -> None:
+        with patch("fruitloops.cli_bulk.download_source", return_value=Path("/tmp/proofread.feather")):
+            with patch(
+                "fruitloops.cli_bulk.import_to_duckdb",
+                return_value={"table": "flywire_proofread_connections", "rows": "7"},
+            ):
+                with patch(
+                    "fruitloops.cli_bulk.optimize_connection_table",
+                    return_value=[{"action": "analyze", "name": "flywire_proofread_connections", "column": ""}],
+                ):
+                    output = run_cli("bulk", "setup", "--dataset", "flywire", "--format", "csv")
+
+        self.assertIn("flywire,download,proofread-connections,ok,/tmp/proofread.feather", output)
+        self.assertIn("flywire,import,flywire_proofread_connections,7,/tmp/proofread.feather", output)
+        self.assertIn("flywire,optimize,flywire_proofread_connections,analyze,", output)
 
     def test_bulk_identifier_and_where_clause_are_sanitized(self) -> None:
         self.assertEqual(safe_identifier("pre.pt-root id"), "pre_pt_root_id")

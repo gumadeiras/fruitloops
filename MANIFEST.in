@@ -1,0 +1,2 @@
+graft data
+global-exclude .DS_Store

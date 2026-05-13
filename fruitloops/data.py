@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import csv
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
+
+from .paths import default_data_dir
 
 
 @dataclass(frozen=True)
@@ -109,10 +110,3 @@ class FruitloopsData:
 
     def table_path(self, table: TableInfo) -> Path:
         return self.data_dir / table.relative_path
-
-
-def default_data_dir() -> Path:
-    configured = os.environ.get("FRUITLOOPS_DATA_DIR")
-    if configured:
-        return Path(configured).expanduser().resolve()
-    return Path(__file__).resolve().parents[1] / "data"

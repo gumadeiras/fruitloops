@@ -13,6 +13,7 @@ from .data import FruitloopsData, TableInfo, default_data_dir
 from .env import load_env_file
 from .filters import matches, parse_filters, project, split_csv
 from .formatting import emit_rows, parse_columns, print_table
+from .bulk import DEFAULT_BULK_DIR, DEFAULT_DUCKDB_PATH
 from .live import (
     flywire_synapses,
     flywire_table,
@@ -55,7 +56,7 @@ def main(argv: list[str] | None = None) -> int:
         "--data-dir",
         type=Path,
         default=None,
-        help="Data directory. Defaults to FRUITLOOPS_DATA_DIR or ./data.",
+        help="Data directory. Defaults to FRUITLOOPS_DATA_DIR or bundled/user data.",
     )
     parser.add_argument(
         "--env-file",
@@ -65,6 +66,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     subparsers = parser.add_subparsers(dest="command")
+
+    locations = subparsers.add_parser("locations", help="Show default data/cache/storage paths.")
+    locations.add_argument("--format", choices=FORMATS, default="table")
+    locations.set_defaults(func=cmd_locations)
 
     datasets = subparsers.add_parser("datasets", help="List available datasets.")
     datasets.set_defaults(func=cmd_datasets)
@@ -272,6 +277,26 @@ def cmd_datasets(args: argparse.Namespace, data: FruitloopsData) -> int:
     ]
     print_table(rows, ["dataset", "tables", "data_dir"])
     return 0
+
+
+def cmd_locations(args: argparse.Namespace, data: FruitloopsData | None) -> int:
+    rows = [
+        location_row("data_dir", default_data_dir(), "FRUITLOOPS_DATA_DIR"),
+        location_row("bulk_dir", DEFAULT_BULK_DIR, "FRUITLOOPS_BULK_DIR"),
+        location_row("duckdb", DEFAULT_DUCKDB_PATH, "FRUITLOOPS_DUCKDB_PATH"),
+        location_row("live_cache", DEFAULT_CACHE_DIR, "FRUITLOOPS_CACHE_DIR"),
+    ]
+    emit_rows(rows, ["name", "path", "exists", "env"], args.format)
+    return 0
+
+
+def location_row(name: str, path: Path, env: str) -> dict[str, str]:
+    return {
+        "name": name,
+        "path": str(path),
+        "exists": str(path.exists()).lower(),
+        "env": env,
+    }
 
 
 def cmd_files(args: argparse.Namespace, data: FruitloopsData) -> int:
@@ -620,6 +645,7 @@ def emit_dynamic_rows(rows: list[dict[str, str]], fmt: str) -> None:
 
 def command_uses_no_manifest(args: argparse.Namespace) -> bool:
     return (args.command == "plot" and args.csv) or args.command in {
+        "locations",
         "live",
         "offline",
         "bulk",
