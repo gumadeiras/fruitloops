@@ -78,6 +78,10 @@ def build_olfaction_cache(
         insert_flywire_annotations(connection, prefix)
         create_annotation_table(connection, prefix)
         create_total_edge_table(connection, prefix)
+        create_neuron_region_table(connection, prefix)
+        create_pathway_edge_table(connection, prefix)
+        create_pathway_summary_table(connection, prefix)
+        create_cell_type_summary_table(connection, prefix)
         create_indexes(connection, prefix)
         return table_counts(connection, prefix, store, imported)
 
@@ -95,6 +99,10 @@ def olfaction_table_names(prefix: str) -> list[str]:
         f"{prefix}_neuropil_membership",
         f"{prefix}_neurons",
         f"{prefix}_annotations",
+        f"{prefix}_neuron_regions",
+        f"{prefix}_pathway_edges",
+        f"{prefix}_pathway_summary",
+        f"{prefix}_cell_type_summary",
     ]
 
 
@@ -332,6 +340,117 @@ def create_total_edge_table(connection, prefix: str) -> None:
     )
 
 
+def create_neuron_region_table(connection, prefix: str) -> None:
+    connection.execute(
+        f"""
+        CREATE TABLE {prefix}_neuron_regions AS
+        SELECT m.dataset,
+               m.body_id,
+               n.primary_name,
+               n.instance,
+               n.cell_class,
+               n.glomerulus,
+               n.side AS cell_body_side,
+               m.neuropil,
+               m.region,
+               m.hemisphere AS neuropil_side,
+               m.input_synapses,
+               m.output_synapses,
+               m.total_synapses
+        FROM {prefix}_neuropil_membership AS m
+        JOIN {prefix}_neurons AS n
+          ON n.dataset = m.dataset AND n.body_id = m.body_id
+        """
+    )
+
+
+def create_pathway_edge_table(connection, prefix: str) -> None:
+    connection.execute(
+        f"""
+        CREATE TABLE {prefix}_pathway_edges AS
+        SELECT e.dataset,
+               e.pre_id,
+               e.post_id,
+               pre.primary_name AS pre_name,
+               post.primary_name AS post_name,
+               pre.cell_class AS pre_class,
+               post.cell_class AS post_class,
+               pre.glomerulus AS pre_glomerulus,
+               post.glomerulus AS post_glomerulus,
+               pre.side AS pre_side,
+               post.side AS post_side,
+               e.neuropil,
+               e.region,
+               e.hemisphere AS neuropil_side,
+               {side_relation_sql("pre.side", "post.side")} AS pre_to_post_relation,
+               {side_relation_sql("pre.side", "e.hemisphere")} AS pre_to_neuropil_relation,
+               {side_relation_sql("post.side", "e.hemisphere")} AS post_to_neuropil_relation,
+               e.synapses,
+               e.source_table
+        FROM {prefix}_edges_by_neuropil AS e
+        LEFT JOIN {prefix}_neurons AS pre
+          ON pre.dataset = e.dataset AND pre.body_id = e.pre_id
+        LEFT JOIN {prefix}_neurons AS post
+          ON post.dataset = e.dataset AND post.body_id = e.post_id
+        """
+    )
+
+
+def create_pathway_summary_table(connection, prefix: str) -> None:
+    connection.execute(
+        f"""
+        CREATE TABLE {prefix}_pathway_summary AS
+        SELECT dataset,
+               pre_class,
+               post_class,
+               pre_glomerulus,
+               post_glomerulus,
+               region,
+               neuropil_side,
+               pre_to_post_relation,
+               pre_to_neuropil_relation,
+               post_to_neuropil_relation,
+               count(DISTINCT pre_id) AS pre_neurons,
+               count(DISTINCT post_id) AS post_neurons,
+               sum(synapses) AS synapses
+        FROM {prefix}_pathway_edges
+        GROUP BY dataset, pre_class, post_class, pre_glomerulus, post_glomerulus,
+                 region, neuropil_side, pre_to_post_relation, pre_to_neuropil_relation,
+                 post_to_neuropil_relation
+        """
+    )
+
+
+def create_cell_type_summary_table(connection, prefix: str) -> None:
+    connection.execute(
+        f"""
+        CREATE TABLE {prefix}_cell_type_summary AS
+        SELECT dataset,
+               region,
+               neuropil_side,
+               cell_class,
+               glomerulus,
+               cell_body_side,
+               count(DISTINCT body_id) AS neurons,
+               sum(input_synapses) AS input_synapses,
+               sum(output_synapses) AS output_synapses,
+               sum(total_synapses) AS total_synapses
+        FROM {prefix}_neuron_regions
+        GROUP BY dataset, region, neuropil_side, cell_class, glomerulus, cell_body_side
+        """
+    )
+
+
+def side_relation_sql(source: str, target: str) -> str:
+    return f"""
+    CASE
+        WHEN coalesce({source}, '') = '' OR coalesce({target}, '') = '' THEN 'unknown'
+        WHEN {source} = {target} THEN 'ipsi'
+        ELSE 'contra'
+    END
+    """
+
+
 def create_indexes(connection, prefix: str) -> None:
     index_specs = [
         (f"{prefix}_neurons", "dataset", "body_id"),
@@ -345,6 +464,14 @@ def create_indexes(connection, prefix: str) -> None:
         (f"{prefix}_neuropil_membership", "dataset", "body_id"),
         (f"{prefix}_edges_total", "dataset", "pre_id"),
         (f"{prefix}_edges_total", "dataset", "post_id"),
+        (f"{prefix}_neuron_regions", "dataset", "cell_class"),
+        (f"{prefix}_neuron_regions", "dataset", "region"),
+        (f"{prefix}_pathway_edges", "dataset", "pre_class"),
+        (f"{prefix}_pathway_edges", "dataset", "post_class"),
+        (f"{prefix}_pathway_edges", "dataset", "region"),
+        (f"{prefix}_pathway_summary", "dataset", "pre_class"),
+        (f"{prefix}_pathway_summary", "dataset", "post_class"),
+        (f"{prefix}_cell_type_summary", "dataset", "cell_class"),
     ]
     for table, first, second in index_specs:
         if table_exists(connection, table):
@@ -591,4 +718,3 @@ def table_exists(connection, table: str) -> bool:
         ).fetchone()[0]
         > 0
     )
-

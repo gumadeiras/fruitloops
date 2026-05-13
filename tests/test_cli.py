@@ -583,7 +583,7 @@ class CliTest(unittest.TestCase):
                 "csv",
             )
             pn_output = run_cli(
-                "olfaction",
+                "olf",
                 "--store",
                 str(store),
                 "pns",
@@ -595,7 +595,7 @@ class CliTest(unittest.TestCase):
                 "csv",
             )
             orn_input_output = run_cli(
-                "olfaction",
+                "olf",
                 "--store",
                 str(store),
                 "orn-inputs",
@@ -610,6 +610,8 @@ class CliTest(unittest.TestCase):
 
         self.assertIn("flywire,flywire_proofread_connections,4,imported", build_output)
         self.assertIn("all,olf_annotations,5,built", build_output)
+        self.assertIn("all,olf_pathway_edges,4,built", build_output)
+        self.assertIn("all,olf_cell_type_summary,8,built", build_output)
         self.assertIn("flywire,2001,DM1_lPN_R,,PN,DM1,R", pn_output)
         self.assertIn("flywire,2001,DM1_lPN_R,DM1,1,12,R,R,ipsi", orn_input_output)
         self.assertIn("flywire,2001,DM1_lPN_R,DM1,1,5,R,L,contra", orn_input_output)

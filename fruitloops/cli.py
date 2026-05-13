@@ -70,11 +70,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Optional env file for live database credentials. Defaults to .env.",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
-    primary_commands = ("status", "setup", "table", "find", "partners", "examples", "admin")
+    primary_commands = ("status", "setup", "olf", "table", "find", "partners", "examples", "admin")
     subparsers = parser.add_subparsers(dest="command", metavar="{" + ",".join(primary_commands) + "}")
 
     add_status_parser(subparsers)
     add_setup_parser(subparsers)
+    add_olfaction_parser(subparsers, name="olf")
     add_table_parser(subparsers)
 
     find = subparsers.add_parser("find", help="Find LN rows across common summary tables.")

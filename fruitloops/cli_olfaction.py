@@ -17,10 +17,10 @@ from .olfaction import (
 from .olfaction_live import cache_olfaction_annotations
 
 
-def add_olfaction_parser(subparsers, *, hidden: bool = False) -> None:
+def add_olfaction_parser(subparsers, *, name: str = "olfaction", hidden: bool = False) -> None:
     help_text = argparse.SUPPRESS if hidden else "Build and query offline AL/LH/MB olfaction tables."
     olfaction = subparsers.add_parser(
-        "olfaction",
+        name,
         help=help_text,
     )
     olfaction.add_argument("--store", type=Path, default=DEFAULT_DUCKDB_PATH)
