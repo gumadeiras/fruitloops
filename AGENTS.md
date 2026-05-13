@@ -65,6 +65,8 @@ python3 -m fruitloops olf glomerulus DM1 --flywire --csv
 python3 -m fruitloops olf inputs --target-class PN --source-class ORN --glomerulus DM1 --by-side --csv
 python3 -m fruitloops olf outputs --source-class PN --target-class KC --region MB --flywire --csv
 python3 -m fruitloops olf pathway PN KC --region MB --flywire --csv
+python3 -m fruitloops olf outputs --source-class PN --target-class LHN --glomerulus DA2 --region LH --flywire --by-side --csv
+python3 -m fruitloops olf outputs --source-class PN --target-class KC --glomerulus DA2 --region MB --flywire --by-side --csv
 python3 -m fruitloops find il3LN6 --flywire --json
 python3 -m fruitloops partners il3LN6 --flywire --orn --csv
 python3 -m fruitloops partners il3LN6 --hemibrain --pn --csv

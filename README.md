@@ -119,6 +119,26 @@ fruitloops olf pathway ORN LN --region AL --flywire --csv
 fruitloops olf pathway PN KC --region MB --flywire --csv
 ```
 
+Question recipes:
+
+```bash
+# Which PNs exist for one glomerulus?
+fruitloops olf pns --flywire --glomerulus DA2 --csv
+fruitloops olf pns --hemibrain --glomerulus DA2 --csv
+
+# Which lateral horn neurons receive direct DA2 PN input?
+fruitloops olf outputs --flywire --source-class PN --target-class LHN --glomerulus DA2 --region LH --by-side --csv
+fruitloops olf outputs --hemibrain --source-class PN --target-class LHN --glomerulus DA2 --region LH --by-side --csv
+
+# Which mushroom body neurons receive direct DA2 PN input?
+fruitloops olf outputs --flywire --source-class PN --target-class KC --glomerulus DA2 --region MB --by-side --csv
+fruitloops olf outputs --hemibrain --source-class PN --target-class KC --glomerulus DA2 --region MB --by-side --csv
+
+# Same DA2 PN target search, without requiring target class annotations.
+fruitloops olf outputs --flywire --source-class PN --glomerulus DA2 --region LH --by-side --csv
+fruitloops olf outputs --flywire --source-class PN --glomerulus DA2 --region MB --by-side --csv
+```
+
 Use table aggregation when you need legacy generated CSV products:
 
 ```bash
@@ -199,6 +219,10 @@ fruitloops olf outputs --dataset flywire --source-class PN --target-class KC --r
 fruitloops olf pathway PN KC --dataset flywire --region MB --format csv
 fruitloops olf edges --dataset flywire --region LH --min-synapses 5 --format csv
 ```
+
+There is not yet a separate docs site or command reference. The current
+documentation lives in this README, `AGENTS.md`, `RELEASE.md`, and CLI help
+from `fruitloops --help` / `fruitloops olf --help`.
 
 ## Generic Plotting
 

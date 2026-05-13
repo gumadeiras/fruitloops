@@ -16,6 +16,8 @@
 
 - Updated README, agent guidance, and CLI examples to lead with broad
   olfaction workflows before LN-specific table queries.
+- Added README and agent examples for DA2 PN direct targets in lateral horn
+  and mushroom body.
 
 ## 0.1.3 - 2026-05-13
 
