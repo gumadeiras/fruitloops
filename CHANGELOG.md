@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.3 - 2026-05-13
+
 ### Features
 
 - Added a simplified top-level CLI around `status`, `setup`, `table`, `find`,
