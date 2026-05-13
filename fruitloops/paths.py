@@ -30,9 +30,6 @@ def fruitloops_data_home() -> Path:
 
 
 def fruitloops_cache_home() -> Path:
-    configured = env_path("FRUITLOOPS_CACHE_DIR")
-    if configured:
-        return configured
     xdg_home = env_path("XDG_CACHE_HOME")
     if xdg_home:
         return xdg_home / APP_NAME
@@ -52,7 +49,7 @@ def default_data_dir() -> Path:
     for candidate in candidates:
         if (candidate / "manifest.csv").exists():
             return candidate
-    return candidates[0]
+    return fruitloops_data_home() / "data"
 
 
 def default_bulk_dir() -> Path:
@@ -74,4 +71,7 @@ def default_duckdb_path() -> Path:
 
 
 def default_live_cache_dir() -> Path:
+    configured = env_path("FRUITLOOPS_CACHE_DIR")
+    if configured:
+        return configured
     return fruitloops_cache_home() / "live"

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from . import __version__
 from .aggregate import aggregate_rows
+from .bulk import DEFAULT_BULK_DIR, DEFAULT_DUCKDB_PATH
 from .cache import DEFAULT_CACHE_DIR, get_or_fetch, list_cache
 from .cli_bulk import add_bulk_parser
 from .connectome import comparison_rows, partner_rows
@@ -13,7 +14,6 @@ from .data import FruitloopsData, TableInfo, default_data_dir
 from .env import load_env_file
 from .filters import matches, parse_filters, project, split_csv
 from .formatting import emit_rows, parse_columns, print_table
-from .bulk import DEFAULT_BULK_DIR, DEFAULT_DUCKDB_PATH
 from .live import (
     flywire_synapses,
     flywire_table,

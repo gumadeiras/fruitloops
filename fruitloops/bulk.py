@@ -102,6 +102,11 @@ BULK_SOURCES = {
         ),
     ]
 }
+HEMIBRAIN_COMPACT_IMPORTS = {
+    "traced-roi-connections.csv": "hemibrain_traced_roi_connections",
+    "traced-total-connections.csv": "hemibrain_traced_total_connections",
+    "traced-neurons.csv": "hemibrain_traced_neurons",
+}
 
 
 def list_sources() -> list[dict[str, str]]:
@@ -117,6 +122,102 @@ def list_sources() -> list[dict[str, str]]:
         }
         for source in sorted(BULK_SOURCES.values(), key=lambda item: (item.dataset, item.kind))
     ]
+
+
+def setup_practical_bulk(
+    bulk_dir: Path = DEFAULT_BULK_DIR,
+    store: Path = DEFAULT_DUCKDB_PATH,
+    datasets: list[str] | None = None,
+    replace: bool = True,
+) -> list[dict[str, str]]:
+    selected = datasets or ["flywire", "hemibrain"]
+    rows = []
+    for dataset in selected:
+        if dataset == "flywire":
+            rows.extend(setup_flywire_bulk(bulk_dir, store, replace))
+        elif dataset == "hemibrain":
+            rows.extend(setup_hemibrain_bulk(bulk_dir, store, replace))
+    return rows
+
+
+def setup_flywire_bulk(bulk_dir: Path, store: Path, replace: bool) -> list[dict[str, str]]:
+    source = resolve_source("flywire", "proofread-connections")
+    rows = []
+    path = download_source(
+        dataset=source.dataset,
+        kind=source.kind,
+        output_dir=bulk_dir / "raw",
+    )
+    rows.append(setup_row(source.dataset, "download", source.kind, "ok", path, store))
+    imported = import_to_duckdb(
+        path=path,
+        table_name=source.table_name,
+        store=store,
+        replace=replace,
+    )
+    rows.append(setup_row(source.dataset, "import", imported["table"], imported["rows"], path, store))
+    rows.extend(setup_optimize_rows(source.dataset, source.table_name, "flywire", store))
+    return rows
+
+
+def setup_hemibrain_bulk(bulk_dir: Path, store: Path, replace: bool) -> list[dict[str, str]]:
+    source = resolve_source("hemibrain", "compact-adjacencies")
+    rows = []
+    archive = download_source(
+        dataset=source.dataset,
+        kind=source.kind,
+        output_dir=bulk_dir / "raw",
+    )
+    rows.append(setup_row(source.dataset, "download", source.kind, "ok", archive, store))
+    extracted = extract_archive_csvs(
+        archive,
+        output_dir=bulk_dir / "extracted" / archive_stem(archive),
+    )
+    rows.append(setup_row(source.dataset, "extract", archive_stem(archive), str(len(extracted)), archive, store))
+    paths = {path.name: path for path in extracted}
+    for filename, table in HEMIBRAIN_COMPACT_IMPORTS.items():
+        try:
+            path = paths[filename]
+        except KeyError as exc:
+            raise FileNotFoundError(f"missing {filename} in {archive}") from exc
+        imported = import_to_duckdb(path=path, table_name=table, store=store, replace=replace)
+        rows.append(setup_row(source.dataset, "import", imported["table"], imported["rows"], path, store))
+    rows.extend(setup_optimize_rows(source.dataset, source.table_name, "hemibrain", store))
+    return rows
+
+
+def setup_optimize_rows(dataset: str, table: str, prefix: str, store: Path) -> list[dict[str, str]]:
+    rows = []
+    for row in optimize_connection_table(store, table, prefix=prefix):
+        rows.append(
+            setup_row(
+                dataset,
+                "optimize",
+                row.get("name", table),
+                row.get("action", "ok"),
+                "",
+                store,
+            )
+        )
+    return rows
+
+
+def setup_row(
+    dataset: str,
+    action: str,
+    target: str,
+    status: str,
+    path: Path | str,
+    store: Path,
+) -> dict[str, str]:
+    return {
+        "dataset": dataset,
+        "action": action,
+        "target": target,
+        "status": status,
+        "path": str(path),
+        "store": str(store),
+    }
 
 
 def resolve_source(dataset: str, kind: str) -> BulkSource:

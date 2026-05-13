@@ -11,11 +11,18 @@ from pathlib import Path
 from unittest.mock import patch
 
 from fruitloops.cli import main
-from fruitloops.bulk import DEFAULT_DUCKDB_PATH, archive_stem, default_bulk_dir, list_sources, safe_identifier, where_clause
+from fruitloops.bulk import (
+    DEFAULT_DUCKDB_PATH,
+    archive_stem,
+    default_bulk_dir,
+    list_sources,
+    safe_identifier,
+    where_clause,
+)
 from fruitloops.cache import DEFAULT_CACHE_DIR, get_or_fetch, list_cache
 from fruitloops.env import load_env_file
 from fruitloops.live import parse_in_filters, parse_ints
-from fruitloops.paths import default_duckdb_path, default_live_cache_dir
+from fruitloops.paths import default_data_dir, default_duckdb_path, default_live_cache_dir
 from fruitloops.plotting import PlotSpec
 
 
@@ -47,7 +54,17 @@ class CliTest(unittest.TestCase):
             tmp_path = Path(tmp).resolve()
             self.assertEqual(default_bulk_dir(), tmp_path / "bulk")
             self.assertEqual(default_duckdb_path(), tmp_path / "custom.duckdb")
-            self.assertEqual(default_live_cache_dir(), tmp_path / "cache" / "live")
+            self.assertEqual(default_live_cache_dir(), tmp_path / "cache")
+
+    def test_data_dir_falls_back_to_user_data_when_not_bundled(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(
+            os.environ,
+            {"XDG_DATA_HOME": str(Path(tmp) / "xdg")},
+            clear=False,
+        ):
+            with patch("fruitloops.paths.package_root", return_value=Path(tmp) / "missing-package"):
+                with patch("fruitloops.paths.sys.prefix", str(Path(tmp) / "missing-prefix")):
+                    self.assertEqual(default_data_dir(), Path(tmp).resolve() / "xdg" / "fruitloops" / "data")
 
     def test_missing_required_arguments_print_command_help(self) -> None:
         self.assertIn("usage: fruitloops schema", run_cli("schema"))
@@ -232,13 +249,13 @@ class CliTest(unittest.TestCase):
         self.assertIn(("hemibrain", "neo4j-inputs"), keys)
 
     def test_bulk_setup_wraps_download_import_and_optimize(self) -> None:
-        with patch("fruitloops.cli_bulk.download_source", return_value=Path("/tmp/proofread.feather")):
+        with patch("fruitloops.bulk.download_source", return_value=Path("/tmp/proofread.feather")):
             with patch(
-                "fruitloops.cli_bulk.import_to_duckdb",
+                "fruitloops.bulk.import_to_duckdb",
                 return_value={"table": "flywire_proofread_connections", "rows": "7"},
             ):
                 with patch(
-                    "fruitloops.cli_bulk.optimize_connection_table",
+                    "fruitloops.bulk.optimize_connection_table",
                     return_value=[{"action": "analyze", "name": "flywire_proofread_connections", "column": ""}],
                 ):
                     output = run_cli("bulk", "setup", "--dataset", "flywire", "--format", "csv")
