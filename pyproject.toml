@@ -10,7 +10,14 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 authors = [{ name = "Gustavo Madeira Santana" }]
-dependencies = []
+dependencies = [
+    "caveclient",
+    "duckdb>=1.1",
+    "matplotlib>=3.7",
+    "neuprint-python",
+    "pandas>=2",
+    "pyarrow>=14",
+]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Topic :: Scientific/Engineering :: Bio-Informatics",
@@ -19,11 +26,6 @@ classifiers = [
 [project.urls]
 Homepage = "https://github.com/gumadeiras/fruitloops"
 Repository = "https://github.com/gumadeiras/fruitloops"
-
-[project.optional-dependencies]
-bulk = ["duckdb>=1.1", "pyarrow>=14"]
-live = ["caveclient", "neuprint-python"]
-plot = ["matplotlib>=3.7"]
 
 [project.scripts]
 fruitloops = "fruitloops.cli:main"

@@ -42,6 +42,7 @@ def default_data_dir() -> Path:
         return configured
 
     candidates = [
+        Path(__file__).resolve().parent / "data",
         package_root() / "data",
         Path(sys.prefix) / "share" / APP_NAME / "data",
         fruitloops_data_home() / "data",

@@ -20,18 +20,20 @@ from .bulk import (
     setup_practical_bulk,
     table_summary,
 )
+from .cli_helpers import add_dataset_arg, add_format_arg, require_dataset, unique_values
 from .filters import parse_filters, split_csv
 from .formatting import emit_rows
 
 
-def add_bulk_parser(subparsers, formats: tuple[str, ...]) -> None:
-    bulk = subparsers.add_parser("bulk", help="Download/import/query bulk offline releases.")
+def add_bulk_parser(subparsers, *, hidden: bool = False) -> None:
+    help_text = argparse.SUPPRESS if hidden else "Download/import/query bulk offline releases."
+    bulk = subparsers.add_parser("bulk", help=help_text)
     bulk.add_argument("--bulk-dir", type=Path, default=DEFAULT_BULK_DIR)
     bulk.add_argument("--store", type=Path, default=DEFAULT_DUCKDB_PATH)
     bulk_subparsers = bulk.add_subparsers(dest="bulk_action", required=True)
 
     bulk_sources = bulk_subparsers.add_parser("sources", help="List known bulk data sources.")
-    bulk_sources.add_argument("--format", choices=formats, default="table")
+    add_format_arg(bulk_sources)
     bulk_sources.set_defaults(func=cmd_bulk_sources)
 
     bulk_setup = bulk_subparsers.add_parser(
@@ -40,11 +42,11 @@ def add_bulk_parser(subparsers, formats: tuple[str, ...]) -> None:
     )
     bulk_setup.add_argument("--dataset", choices=("hemibrain", "flywire"), action="append")
     bulk_setup.add_argument("--replace", action=argparse.BooleanOptionalAction, default=True)
-    bulk_setup.add_argument("--format", choices=formats, default="table")
+    add_format_arg(bulk_setup)
     bulk_setup.set_defaults(func=cmd_bulk_setup)
 
     bulk_download = bulk_subparsers.add_parser("download", help="Download a known bulk source.")
-    bulk_download.add_argument("--dataset", choices=("hemibrain", "flywire"), required=True)
+    add_dataset_arg(bulk_download, ("hemibrain", "flywire"), required=True)
     bulk_download.add_argument("--kind", required=True)
     bulk_download.add_argument("--force", action="store_true")
     bulk_download.set_defaults(func=cmd_bulk_download)
@@ -59,16 +61,16 @@ def add_bulk_parser(subparsers, formats: tuple[str, ...]) -> None:
     bulk_extract.add_argument("--path", type=Path, required=True)
     bulk_extract.add_argument("--output-dir", type=Path)
     bulk_extract.add_argument("--force", action="store_true")
-    bulk_extract.add_argument("--format", choices=formats, default="table")
+    add_format_arg(bulk_extract)
     bulk_extract.set_defaults(func=cmd_bulk_extract)
 
     bulk_tables = bulk_subparsers.add_parser("tables", help="List imported DuckDB tables.")
-    bulk_tables.add_argument("--format", choices=formats, default="table")
+    add_format_arg(bulk_tables)
     bulk_tables.set_defaults(func=cmd_bulk_tables)
 
     bulk_schema = bulk_subparsers.add_parser("schema", help="Show imported DuckDB table schema.")
     bulk_schema.add_argument("--table", required=True)
-    bulk_schema.add_argument("--format", choices=formats, default="table")
+    add_format_arg(bulk_schema)
     bulk_schema.set_defaults(func=cmd_bulk_schema)
 
     bulk_query = bulk_subparsers.add_parser("query", help="Query imported DuckDB tables.")
@@ -76,7 +78,7 @@ def add_bulk_parser(subparsers, formats: tuple[str, ...]) -> None:
     bulk_query.add_argument("--where", action="append", default=[], help="Exact filter: column=value.")
     bulk_query.add_argument("--select")
     bulk_query.add_argument("--limit", type=int, default=50)
-    bulk_query.add_argument("--format", choices=formats, default="table")
+    add_format_arg(bulk_query)
     bulk_query.set_defaults(func=cmd_bulk_query)
 
     bulk_connections = bulk_subparsers.add_parser("connections", help="Query inferred connection table rows.")
@@ -85,40 +87,40 @@ def add_bulk_parser(subparsers, formats: tuple[str, ...]) -> None:
     bulk_connections.add_argument("--post-id")
     bulk_connections.add_argument("--min-weight", type=int, default=1)
     bulk_connections.add_argument("--limit", type=int, default=50)
-    bulk_connections.add_argument("--format", choices=formats, default="table")
+    add_format_arg(bulk_connections)
     bulk_connections.set_defaults(func=cmd_bulk_connections)
 
     bulk_inputs = bulk_subparsers.add_parser("inputs", help="Query upstream partners for a body id.")
-    add_bulk_partner_args(bulk_inputs, formats)
+    add_bulk_partner_args(bulk_inputs)
     bulk_inputs.set_defaults(func=cmd_bulk_inputs)
 
     bulk_outputs = bulk_subparsers.add_parser("outputs", help="Query downstream partners for a body id.")
-    add_bulk_partner_args(bulk_outputs, formats)
+    add_bulk_partner_args(bulk_outputs)
     bulk_outputs.set_defaults(func=cmd_bulk_outputs)
 
     bulk_partners = bulk_subparsers.add_parser("partners", help="Query input and output partners for a body id.")
-    add_bulk_partner_args(bulk_partners, formats)
+    add_bulk_partner_args(bulk_partners)
     bulk_partners.set_defaults(func=cmd_bulk_partners)
 
     bulk_views = bulk_subparsers.add_parser("views", help="Create normalized edge/partner views.")
     bulk_views.add_argument("--table", required=True)
     bulk_views.add_argument("--prefix")
-    bulk_views.add_argument("--format", choices=formats, default="table")
+    add_format_arg(bulk_views)
     bulk_views.set_defaults(func=cmd_bulk_views)
 
     bulk_optimize = bulk_subparsers.add_parser("optimize", help="Add indexes/statistics for a connection table.")
     bulk_optimize.add_argument("--table", required=True)
     bulk_optimize.add_argument("--prefix")
-    bulk_optimize.add_argument("--format", choices=formats, default="table")
+    add_format_arg(bulk_optimize)
     bulk_optimize.set_defaults(func=cmd_bulk_optimize)
 
 
-def add_bulk_partner_args(parser: argparse.ArgumentParser, formats: tuple[str, ...]) -> None:
+def add_bulk_partner_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--table", required=True)
     parser.add_argument("--body-id", required=True)
     parser.add_argument("--min-weight", type=int, default=1)
     parser.add_argument("--limit", type=int, default=50)
-    parser.add_argument("--format", choices=formats, default="table")
+    add_format_arg(parser)
 
 
 def cmd_bulk_sources(args: argparse.Namespace, data) -> int:
@@ -132,7 +134,7 @@ def cmd_bulk_setup(args: argparse.Namespace, data) -> int:
     rows = setup_practical_bulk(
         bulk_dir=args.bulk_dir,
         store=args.store,
-        datasets=args.dataset,
+        datasets=unique_values(args.dataset),
         replace=args.replace,
     )
     emit_rows(rows, ["dataset", "action", "target", "status", "path", "store"], args.format)
@@ -141,7 +143,7 @@ def cmd_bulk_setup(args: argparse.Namespace, data) -> int:
 
 def cmd_bulk_download(args: argparse.Namespace, data) -> int:
     path = download_source(
-        dataset=args.dataset,
+        dataset=require_dataset(args),
         kind=args.kind,
         output_dir=args.bulk_dir / "raw",
         force=args.force,

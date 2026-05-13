@@ -96,7 +96,7 @@ def import_matplotlib():
         import matplotlib.pyplot as plt
     except ImportError as exc:
         raise SystemExit(
-            "plotting requires matplotlib. Install with `python -m pip install -e '.[plot]'`."
+            "plotting requires matplotlib. Install or reinstall fruitloops to include runtime dependencies."
         ) from exc
     return plt
 

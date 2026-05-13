@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+### Features
+
+- Added a simplified top-level CLI around `status`, `setup`, `table`, `find`,
+  `partners`, `examples`, and `admin`.
+- Added `fruitloops setup` as the single explicit setup command for live cache
+  directories, practical bulk imports, and derived olfaction tables.
+- Added table, setup, status, and shared CLI helper modules to keep command
+  behavior scoped and reusable.
+
+### Changes
+
+- Kept the offline/live command split, but moved advanced commands behind
+  `fruitloops admin`.
+- Replaced optional dependency extras with one installable runtime dependency
+  set for bulk, live, plotting, pandas, and Arrow support.
+- Packaged the generated CSV snapshot into wheels under `fruitloops/data` and
+  made data-dir discovery prefer bundled package data.
+- Updated README and release notes for the one-installable workflow and the
+  `fruitloops setup` path.
+- Centralized format, dataset, partner-kind, and repeated-dataset argument
+  handling across CLI modules.
+
+### Fixes
+
+- Removed references to `fruitloops-install-extras` and extra-based install
+  messages from current docs and runtime dependency errors.
+- Avoided duplicate setup/build work when repeated dataset flags are provided.
+- Added regression coverage for the setup wrapper, annotation caching rebuilds,
+  admin passthrough, and unified table command workflows.
+
 ## 0.1.2 - 2026-05-13
 
 ### Changes

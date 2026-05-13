@@ -55,19 +55,17 @@ gh run watch --workflow release --exit-status
 
 ## Homebrew Formula Requirements
 
-The formula must install the generated CSV snapshot from the sdist:
+The formula should install the single runtime environment declared in
+`pyproject.toml`; there is no separate extras install step.
 
-```ruby
-(libexec/"share/fruitloops/data").install Dir["data/*"]
-```
+The package build copies the generated CSV snapshot into `fruitloops/data`, so
+the formula should not need a separate data install step.
 
 Do not ship the bulk DuckDB database through Homebrew. Users should build it
 locally:
 
 ```bash
-fruitloops-install-extras
-fruitloops bulk setup
-fruitloops olfaction build
+fruitloops setup
 ```
 
 Manual tap fallback:

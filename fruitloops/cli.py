@@ -5,15 +5,23 @@ import csv
 from pathlib import Path
 
 from . import __version__
-from .aggregate import aggregate_rows
-from .bulk import DEFAULT_BULK_DIR, DEFAULT_DUCKDB_PATH
-from .cache import DEFAULT_CACHE_DIR, get_or_fetch, list_cache
+from .cache import DEFAULT_CACHE_DIR, get_or_fetch
+from .cli_helpers import (
+    add_dataset_arg,
+    add_format_arg,
+    add_partner_kind_arg,
+    require_dataset,
+    require_partner_kind,
+)
 from .cli_bulk import add_bulk_parser
+from .cli_setup import add_setup_parser
+from .cli_status import add_locations_parser, add_status_parser
+from .cli_table import add_legacy_table_parsers, add_table_parser
 from .connectome import comparison_rows, partner_rows
 from .data import FruitloopsData, TableInfo, default_data_dir
 from .env import load_env_file
-from .filters import matches, parse_filters, project, split_csv
-from .formatting import emit_rows, parse_columns, print_table
+from .filters import matches, parse_filters, split_csv
+from .formatting import emit_rows, print_table
 from .live import (
     flywire_synapses,
     flywire_table,
@@ -25,9 +33,6 @@ from .live import (
 )
 from .cli_olfaction import add_olfaction_parser
 from .plotting import PlotSpec, render_plot
-
-
-FORMATS = ("table", "csv", "json", "jsonl")
 
 
 class HelpOnMissingArgsParser(argparse.ArgumentParser):
@@ -65,78 +70,49 @@ def main(argv: list[str] | None = None) -> int:
         help="Optional env file for live database credentials. Defaults to .env.",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
-    subparsers = parser.add_subparsers(dest="command")
+    primary_commands = ("status", "setup", "table", "find", "partners", "examples", "admin")
+    subparsers = parser.add_subparsers(dest="command", metavar="{" + ",".join(primary_commands) + "}")
 
-    locations = subparsers.add_parser("locations", help="Show default data/cache/storage paths.")
-    locations.add_argument("--format", choices=FORMATS, default="table")
-    locations.set_defaults(func=cmd_locations)
+    add_status_parser(subparsers)
+    add_setup_parser(subparsers)
+    add_table_parser(subparsers)
 
-    datasets = subparsers.add_parser("datasets", help="List available datasets.")
-    datasets.set_defaults(func=cmd_datasets)
-
-    files = subparsers.add_parser("files", help="List tables from the manifest.")
-    files.add_argument("--dataset", choices=("hemibrain", "flywire", "comparison"))
-    files.add_argument("--contains", help="Case-insensitive filter on path/id.")
-    files.add_argument("--format", choices=FORMATS, default="table")
-    files.set_defaults(func=cmd_files)
-
-    schema = subparsers.add_parser("schema", help="Show table columns.")
-    schema.add_argument("--table", required=True)
-    schema.add_argument("--format", choices=FORMATS, default="table")
-    schema.set_defaults(func=cmd_schema)
-
-    path = subparsers.add_parser("path", help="Print the CSV path for a table.")
-    path.add_argument("--table", required=True)
-    path.set_defaults(func=cmd_path)
-
-    head = subparsers.add_parser("head", help="Show first rows from a table.")
-    head.add_argument("--table", required=True)
-    head.add_argument("--limit", type=int, default=10)
-    head.add_argument("--select")
-    head.add_argument("--format", choices=FORMATS, default="table")
-    head.set_defaults(func=cmd_head)
-
-    query = subparsers.add_parser("query", help="Filter a table.")
-    query.add_argument("--table", required=True)
-    query.add_argument("--where", action="append", default=[], help="Exact filter: column=value.")
-    query.add_argument("--contains", action="append", default=[], help="Substring filter: column=text.")
-    query.add_argument("--select")
-    query.add_argument("--limit", type=int, default=100)
-    query.add_argument("--format", choices=FORMATS, default="table")
-    query.set_defaults(func=cmd_query)
-
-    aggregate = subparsers.add_parser("aggregate", help="Group and aggregate a table.")
-    aggregate.add_argument("--table", required=True)
-    aggregate.add_argument("--by", required=True, help="Comma-separated group columns.")
-    aggregate.add_argument("--sum", dest="sum_columns", default="", help="Comma-separated numeric columns to sum.")
-    aggregate.add_argument("--mean", dest="mean_columns", default="", help="Comma-separated numeric columns to average.")
-    aggregate.add_argument("--where", action="append", default=[], help="Exact filter: column=value.")
-    aggregate.add_argument("--contains", action="append", default=[], help="Substring filter: column=text.")
-    aggregate.add_argument("--limit", type=int, default=100)
-    aggregate.add_argument("--format", choices=FORMATS, default="table")
-    aggregate.set_defaults(func=cmd_aggregate)
-
-    ln = subparsers.add_parser("ln", help="Find LN rows across common summary tables.")
-    ln.add_argument("name", help="LN class/name/root id/body id search term.")
-    ln.add_argument("--dataset", choices=("hemibrain", "flywire", "comparison"))
-    ln.add_argument("--limit", type=int, default=200)
-    ln.add_argument("--format", choices=FORMATS, default="table")
-    ln.set_defaults(func=cmd_ln)
+    find = subparsers.add_parser("find", help="Find LN rows across common summary tables.")
+    add_find_args(find)
+    find.set_defaults(func=cmd_ln)
 
     partners = subparsers.add_parser("partners", help="Summarize ORN or PN partners for an LN.")
     partners.add_argument("name", help="LN class/name/root id/body id search term.")
-    partners.add_argument("--dataset", choices=("hemibrain", "flywire"), required=True)
-    partners.add_argument("--kind", choices=("orn", "pn"), required=True)
+    add_dataset_arg(partners, ("hemibrain", "flywire"), required=True)
+    add_partner_kind_arg(partners, required=True)
     partners.add_argument("--limit", type=int, default=100)
-    partners.add_argument("--format", choices=FORMATS, default="table")
+    add_format_arg(partners)
     partners.set_defaults(func=cmd_partners)
 
-    compare = subparsers.add_parser("compare", help="Show cross-dataset comparison rows for an LN.")
+    examples = subparsers.add_parser("examples", help="Show common task recipes.")
+    examples.set_defaults(func=cmd_examples)
+
+    admin = subparsers.add_parser("admin", help="Run advanced commands: bulk, live, offline, olfaction, plot.")
+    admin.add_argument("args", nargs=argparse.REMAINDER)
+    admin.set_defaults(func=cmd_admin)
+
+    add_locations_parser(subparsers)
+
+    datasets = subparsers.add_parser("datasets", help=argparse.SUPPRESS)
+    datasets.set_defaults(func=cmd_datasets)
+
+    add_legacy_table_parsers(subparsers)
+
+    ln = subparsers.add_parser("ln", help=argparse.SUPPRESS)
+    add_find_args(ln)
+    ln.set_defaults(func=cmd_ln)
+
+    compare = subparsers.add_parser("compare", help=argparse.SUPPRESS)
     compare.add_argument("name", help="LN class/name search term.")
-    compare.add_argument("--format", choices=FORMATS, default="table")
+    add_format_arg(compare)
     compare.set_defaults(func=cmd_compare)
 
-    plot = subparsers.add_parser("plot", help="Render a reusable plot from any CSV table.")
+    plot = subparsers.add_parser("plot", help=argparse.SUPPRESS)
     plot_source = plot.add_mutually_exclusive_group(required=True)
     plot_source.add_argument("--table", help="Table reference or file_id.")
     plot_source.add_argument("--csv", type=Path, help="Path to any CSV file.")
@@ -167,7 +143,7 @@ def main(argv: list[str] | None = None) -> int:
     plot.add_argument("--formats", default="png", help="Comma-separated: png,pdf,svg.")
     plot.set_defaults(func=cmd_plot)
 
-    live = subparsers.add_parser("live", help="Fetch data from live connectome APIs.")
+    live = subparsers.add_parser("live", help=argparse.SUPPRESS)
     live_subparsers = live.add_subparsers(dest="live_dataset", required=True)
 
     hemibrain = live_subparsers.add_parser("hemibrain", help="Fetch from neuprint hemibrain.")
@@ -178,7 +154,7 @@ def main(argv: list[str] | None = None) -> int:
     hb_neurons.add_argument("--type-contains")
     hb_neurons.add_argument("--instance-contains")
     hb_neurons.add_argument("--limit", type=int, default=20)
-    hb_neurons.add_argument("--format", choices=FORMATS, default="table")
+    add_format_arg(hb_neurons)
     hb_neurons.set_defaults(func=cmd_live_hemibrain_neurons)
 
     hb_connections = hemibrain_subparsers.add_parser("connections", help="Fetch hemibrain weighted connections.")
@@ -186,20 +162,20 @@ def main(argv: list[str] | None = None) -> int:
     hb_connections.add_argument("--downstream-body-id", action="append", default=[], help="Downstream body id.")
     hb_connections.add_argument("--min-weight", type=int, default=1)
     hb_connections.add_argument("--limit", type=int, default=50)
-    hb_connections.add_argument("--format", choices=FORMATS, default="table")
+    add_format_arg(hb_connections)
     hb_connections.set_defaults(func=cmd_live_hemibrain_connections)
 
     hb_cypher = hemibrain_subparsers.add_parser("cypher", help="Run a hemibrain Cypher query.")
     hb_cypher.add_argument("--query", required=True)
     hb_cypher.add_argument("--limit", type=int)
-    hb_cypher.add_argument("--format", choices=FORMATS, default="table")
+    add_format_arg(hb_cypher)
     hb_cypher.set_defaults(func=cmd_live_hemibrain_cypher)
 
     flywire = live_subparsers.add_parser("flywire", help="Fetch from CAVE FlyWire.")
     flywire_subparsers = flywire.add_subparsers(dest="live_action", required=True)
 
     fw_tables = flywire_subparsers.add_parser("tables", help="List FlyWire materialized tables.")
-    fw_tables.add_argument("--format", choices=FORMATS, default="table")
+    add_format_arg(fw_tables)
     fw_tables.set_defaults(func=cmd_live_flywire_tables)
 
     fw_table = flywire_subparsers.add_parser("table", help="Query a FlyWire materialized table.")
@@ -209,7 +185,7 @@ def main(argv: list[str] | None = None) -> int:
     fw_table.add_argument("--select", help="Comma-separated columns.")
     fw_table.add_argument("--limit", type=int, default=50)
     fw_table.add_argument("--materialization-version", type=int)
-    fw_table.add_argument("--format", choices=FORMATS, default="table")
+    add_format_arg(fw_table)
     fw_table.set_defaults(func=cmd_live_flywire_table)
 
     fw_synapses = flywire_subparsers.add_parser("synapses", help="Query FlyWire synapses_nt_v1.")
@@ -217,22 +193,22 @@ def main(argv: list[str] | None = None) -> int:
     fw_synapses.add_argument("--post-root-id", action="append", default=[], help="Post root id.")
     fw_synapses.add_argument("--limit", type=int, default=50)
     fw_synapses.add_argument("--materialization-version", type=int)
-    fw_synapses.add_argument("--format", choices=FORMATS, default="table")
+    add_format_arg(fw_synapses)
     fw_synapses.set_defaults(func=cmd_live_flywire_synapses)
 
-    offline = subparsers.add_parser("offline", help="Offline-first live-query cache.")
+    offline = subparsers.add_parser("offline", help=argparse.SUPPRESS)
     offline.add_argument("--cache-dir", type=Path, default=DEFAULT_CACHE_DIR)
     offline_subparsers = offline.add_subparsers(dest="offline_action", required=True)
 
     offline_list = offline_subparsers.add_parser("list", help="List cached live queries.")
-    offline_list.add_argument("--format", choices=FORMATS, default="table")
+    add_format_arg(offline_list)
     offline_list.set_defaults(func=cmd_offline_list)
 
     offline_fetch = offline_subparsers.add_parser(
         "fetch",
         help="Read cached result first; fetch live and save on miss.",
     )
-    offline_fetch.add_argument("--dataset", choices=("hemibrain", "flywire"), required=True)
+    add_dataset_arg(offline_fetch, ("hemibrain", "flywire"), required=True)
     offline_fetch.add_argument(
         "--action",
         choices=("neurons", "connections", "cypher", "tables", "table", "synapses"),
@@ -255,19 +231,59 @@ def main(argv: list[str] | None = None) -> int:
     offline_fetch.add_argument("--materialization-version", type=int)
     offline_fetch.add_argument("--refresh", action="store_true", help="Bypass cache and fetch live.")
     offline_fetch.add_argument("--offline-only", action="store_true", help="Fail closed on cache miss.")
-    offline_fetch.add_argument("--format", choices=FORMATS, default="table")
+    add_format_arg(offline_fetch)
     offline_fetch.set_defaults(func=cmd_offline_fetch)
 
-    add_bulk_parser(subparsers, FORMATS)
-    add_olfaction_parser(subparsers, FORMATS)
+    add_bulk_parser(subparsers, hidden=True)
+    add_olfaction_parser(subparsers, hidden=True)
+    hide_subcommands(
+        subparsers,
+        (
+            "locations",
+            "datasets",
+            "files",
+            "schema",
+            "path",
+            "head",
+            "query",
+            "aggregate",
+            "ln",
+            "compare",
+            "plot",
+            "live",
+            "offline",
+            "bulk",
+            "olfaction",
+        ),
+    )
 
     args = parser.parse_args(argv)
     if args.command is None:
         parser.print_help()
         return 0
+    validate_required_aliases(args)
     load_env_file(args.env_file)
     data = None if command_uses_no_manifest(args) else FruitloopsData(args.data_dir or default_data_dir())
     return args.func(args, data)
+
+
+def add_find_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("name", help="LN class/name/root id/body id search term.")
+    add_dataset_arg(parser, ("hemibrain", "flywire", "comparison"))
+    parser.add_argument("--limit", type=int, default=200)
+    add_format_arg(parser)
+
+
+def hide_subcommands(subparsers, names: tuple[str, ...]) -> None:
+    hidden = set(names)
+    subparsers._choices_actions = [action for action in subparsers._choices_actions if action.dest not in hidden]
+
+
+def validate_required_aliases(args: argparse.Namespace) -> None:
+    if getattr(args, "_required_dataset", False):
+        require_dataset(args)
+    if getattr(args, "_required_kind", False):
+        require_partner_kind(args)
 
 
 def cmd_datasets(args: argparse.Namespace, data: FruitloopsData) -> int:
@@ -279,105 +295,44 @@ def cmd_datasets(args: argparse.Namespace, data: FruitloopsData) -> int:
     return 0
 
 
-def cmd_locations(args: argparse.Namespace, data: FruitloopsData | None) -> int:
-    rows = [
-        location_row("data_dir", default_data_dir(), "FRUITLOOPS_DATA_DIR"),
-        location_row("bulk_dir", DEFAULT_BULK_DIR, "FRUITLOOPS_BULK_DIR"),
-        location_row("duckdb", DEFAULT_DUCKDB_PATH, "FRUITLOOPS_DUCKDB_PATH"),
-        location_row("live_cache", DEFAULT_CACHE_DIR, "FRUITLOOPS_CACHE_DIR"),
-    ]
-    emit_rows(rows, ["name", "path", "exists", "env"], args.format)
+def cmd_admin(args: argparse.Namespace, data: FruitloopsData | None) -> int:
+    if not args.args:
+        print(ADMIN_HELP)
+        return 0
+    forwarded = []
+    if args.data_dir:
+        forwarded.extend(["--data-dir", str(args.data_dir)])
+    if args.env_file:
+        forwarded.extend(["--env-file", str(args.env_file)])
+    return main(forwarded + args.args)
+
+
+def cmd_examples(args: argparse.Namespace, data: FruitloopsData | None) -> int:
+    print(EXAMPLES)
     return 0
 
 
-def location_row(name: str, path: Path, env: str) -> dict[str, str]:
-    return {
-        "name": name,
-        "path": str(path),
-        "exists": str(path.exists()).lower(),
-        "env": env,
-    }
+ADMIN_HELP = """usage: fruitloops admin <command> ...
+
+Advanced commands:
+  bulk      Download/import/query bulk offline releases.
+  live      Fetch data from live connectome APIs.
+  offline   Use the offline-first live-query cache.
+  olfaction Build/query derived AL/LH/MB tables.
+  plot      Render plots from CSV tables.
+"""
 
 
-def cmd_files(args: argparse.Namespace, data: FruitloopsData) -> int:
-    rows = [
-        {
-            "dataset": table.dataset,
-            "collection": table.collection,
-            "file_id": table.file_id,
-            "rows": str(table.rows),
-            "columns": str(len(table.columns)),
-            "relative_path": table.relative_path,
-        }
-        for table in data.tables(args.dataset, args.contains)
-    ]
-    emit_rows(rows, ["dataset", "collection", "file_id", "rows", "columns", "relative_path"], args.format)
-    return 0
-
-
-def cmd_schema(args: argparse.Namespace, data: FruitloopsData) -> int:
-    table = data.resolve(args.table)
-    rows = [
-        {"index": str(index), "column": column, "table": table.file_id}
-        for index, column in enumerate(table.columns, start=1)
-    ]
-    emit_rows(rows, ["index", "column", "table"], args.format)
-    return 0
-
-
-def cmd_path(args: argparse.Namespace, data: FruitloopsData) -> int:
-    table = data.resolve(args.table)
-    print(data.table_path(table))
-    return 0
-
-
-def cmd_head(args: argparse.Namespace, data: FruitloopsData) -> int:
-    table = data.resolve(args.table)
-    columns = parse_columns(args.select, table.columns)
-    rows = []
-    for row in data.open_table(table):
-        rows.append(project(row, columns))
-        if len(rows) >= args.limit:
-            break
-    emit_rows(rows, columns, args.format)
-    return 0
-
-
-def cmd_query(args: argparse.Namespace, data: FruitloopsData) -> int:
-    table = data.resolve(args.table)
-    exact = parse_filters(args.where)
-    contains = parse_filters(args.contains)
-    columns = parse_columns(args.select, table.columns)
-    rows = []
-    for row in data.open_table(table):
-        if not matches(row, exact, contains):
-            continue
-        rows.append(project(row, columns))
-        if len(rows) >= args.limit:
-            break
-    emit_rows(rows, columns, args.format)
-    return 0
-
-
-def cmd_aggregate(args: argparse.Namespace, data: FruitloopsData) -> int:
-    table = data.resolve(args.table)
-    by = split_csv(args.by)
-    sum_columns = split_csv(args.sum_columns)
-    mean_columns = split_csv(args.mean_columns)
-    rows = list(data.open_table(table))
-    out = aggregate_rows(
-        rows,
-        by,
-        sum_columns,
-        mean_columns,
-        parse_filters(args.where),
-        parse_filters(args.contains),
-    )
-    columns = by + ["count"] + [f"sum_{column}" for column in sum_columns] + [
-        f"mean_{column}" for column in mean_columns
-    ]
-    emit_rows(out[: args.limit], columns, args.format)
-    return 0
+EXAMPLES = """fruitloops status --csv
+fruitloops setup --csv
+fruitloops table --flywire --contains full_summary --csv
+fruitloops table comparison:matched_ln_class_similarity --schema --csv
+fruitloops table comparison:matched_ln_class_similarity --contains LN_class=il3LN6 --json
+fruitloops find il3LN6 --flywire --csv
+fruitloops partners il3LN6 --flywire --orn --csv
+fruitloops admin offline fetch --dataset flywire --action synapses --pre-root-id ROOT --limit 10 --csv
+fruitloops setup --flywire --csv
+"""
 
 
 def cmd_ln(args: argparse.Namespace, data: FruitloopsData) -> int:
@@ -419,7 +374,7 @@ def cmd_ln(args: argparse.Namespace, data: FruitloopsData) -> int:
 
 
 def cmd_partners(args: argparse.Namespace, data: FruitloopsData) -> int:
-    rows, columns = partner_rows(data, args.dataset, args.name, args.kind)
+    rows, columns = partner_rows(data, require_dataset(args), args.name, require_partner_kind(args))
     emit_rows(rows[: args.limit], columns, args.format)
     return 0
 
@@ -562,7 +517,7 @@ def cmd_offline_fetch(args: argparse.Namespace, data: FruitloopsData | None) -> 
 
 
 def build_offline_fetch(args: argparse.Namespace):
-    dataset = args.dataset
+    dataset = require_dataset(args)
     action = args.action
     query = offline_query_payload(args)
 
@@ -645,7 +600,10 @@ def emit_dynamic_rows(rows: list[dict[str, str]], fmt: str) -> None:
 
 def command_uses_no_manifest(args: argparse.Namespace) -> bool:
     return (args.command == "plot" and args.csv) or args.command in {
+        "admin",
+        "examples",
         "locations",
+        "setup",
         "live",
         "offline",
         "bulk",

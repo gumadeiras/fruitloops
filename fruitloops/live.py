@@ -55,7 +55,7 @@ def hemibrain_client():
     except ImportError as exc:
         raise SystemExit(
             "hemibrain live access requires neuprint-python. "
-            "Install with `python -m pip install -e '.[live]'`."
+            "Install or reinstall fruitloops to include runtime dependencies."
         ) from exc
     config = hemibrain_config()
     return Client(config.server, dataset=config.dataset, token=config.token)
@@ -67,7 +67,7 @@ def flywire_client():
     except ImportError as exc:
         raise SystemExit(
             "FlyWire live access requires caveclient. "
-            "Install with `python -m pip install -e '.[live]'`."
+            "Install or reinstall fruitloops to include runtime dependencies."
         ) from exc
     config = flywire_config()
     return CAVEclient(config.datastack, auth_token=config.token)

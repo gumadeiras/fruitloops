@@ -161,8 +161,7 @@ def replace_table_from_frames(connection, table: str, frames: list[object]) -> i
         import pandas as pd
     except ImportError as exc:
         raise SystemExit(
-            "annotation caching requires pandas from the live dependencies. "
-            "Install with `python -m pip install -e '.[live,bulk]'`."
+            "annotation caching requires pandas. Install or reinstall fruitloops to include runtime dependencies."
         ) from exc
     frame = pd.concat(nonempty, ignore_index=True)
     connection.register("_fruitloops_annotation_import", frame)

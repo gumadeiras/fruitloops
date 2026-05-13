@@ -292,7 +292,7 @@ def import_feather(connection, path: Path, table_name: str) -> None:
         import pyarrow.ipc as ipc
     except ImportError as exc:
         raise SystemExit(
-            "Feather import requires pyarrow. Install with `python -m pip install -e '.[bulk]'`."
+            "Feather import requires pyarrow. Install or reinstall fruitloops to include runtime dependencies."
         ) from exc
     with pa.memory_map(str(path), "r") as source:
         reader = ipc.open_file(source)
@@ -521,7 +521,7 @@ def require_duckdb(action: str):
         import duckdb
     except ImportError as exc:
         raise SystemExit(
-            f"bulk {action} requires duckdb. Install with `python -m pip install -e '.[bulk]'`."
+            f"bulk {action} requires duckdb. Install or reinstall fruitloops to include runtime dependencies."
         ) from exc
     return duckdb
 

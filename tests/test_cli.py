@@ -31,8 +31,10 @@ class CliTest(unittest.TestCase):
         output = run_cli()
 
         self.assertIn("usage: fruitloops", output)
-        self.assertIn("locations", output)
-        self.assertIn("datasets", output)
+        self.assertIn("status", output)
+        self.assertIn("table", output)
+        self.assertIn("find", output)
+        self.assertNotIn("==SUPPRESS==", output)
 
     def test_locations_reports_absolute_paths(self) -> None:
         output = run_cli("locations", "--format", "csv")
@@ -41,6 +43,147 @@ class CliTest(unittest.TestCase):
         self.assertIn(str(DEFAULT_DUCKDB_PATH), output)
         self.assertTrue(DEFAULT_DUCKDB_PATH.is_absolute())
         self.assertTrue(DEFAULT_CACHE_DIR.is_absolute())
+
+    def test_status_summarizes_locations_and_datasets(self) -> None:
+        output = run_cli("status", "--csv")
+
+        self.assertIn("section,name,value,path,exists", output)
+        self.assertIn("location,data_dir,configured", output)
+        self.assertIn("dataset,flywire,", output)
+
+    def test_examples_and_admin_passthrough(self) -> None:
+        examples = run_cli("examples")
+        admin = run_cli("admin", "bulk", "sources", "--csv")
+
+        self.assertIn("fruitloops status --csv", examples)
+        self.assertIn("dataset,kind,format", admin)
+
+    def test_setup_wraps_bulk_cache_and_olfaction_build(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_dir = Path(tmp) / "cache"
+            store = Path(tmp) / "fruitloops.duckdb"
+            with patch(
+                "fruitloops.cli_setup.setup_practical_bulk",
+                return_value=[
+                    {
+                        "dataset": "flywire",
+                        "action": "import",
+                        "target": "flywire_proofread_connections",
+                        "status": "7",
+                        "path": "/tmp/proofread.feather",
+                        "store": str(store),
+                    }
+                ],
+            ) as bulk_setup:
+                with patch(
+                    "fruitloops.cli_setup.build_olfaction_cache",
+                    return_value=[
+                        {
+                            "dataset": "flywire",
+                            "table": "olf_neurons",
+                            "rows": "5",
+                            "status": "built",
+                            "store": str(store),
+                        }
+                    ],
+                ) as olfaction_build:
+                    output = run_cli(
+                        "setup",
+                        "--flywire",
+                        "--cache-dir",
+                        str(cache_dir),
+                        "--store",
+                        str(store),
+                        "--csv",
+                    )
+                    cache_exists = cache_dir.exists()
+
+        self.assertTrue(cache_exists)
+        bulk_setup.assert_called_once()
+        olfaction_build.assert_called_once()
+        self.assertIn("all,cache,live_cache,ready", output)
+        self.assertIn("flywire,import,flywire_proofread_connections,7", output)
+        self.assertIn("flywire,olfaction-build,olf_neurons,built:5", output)
+
+    def test_setup_can_cache_annotations_before_rebuild(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_dir = Path(tmp) / "cache"
+            store = Path(tmp) / "fruitloops.duckdb"
+            with patch("fruitloops.cli_setup.setup_practical_bulk", return_value=[]):
+                with patch(
+                    "fruitloops.cli_setup.build_olfaction_cache",
+                    side_effect=[
+                        [
+                            {
+                                "dataset": "flywire",
+                                "table": "olf_neurons",
+                                "rows": "5",
+                                "status": "built",
+                                "store": str(store),
+                            }
+                        ],
+                        [
+                            {
+                                "dataset": "flywire",
+                                "table": "olf_neurons",
+                                "rows": "6",
+                                "status": "built",
+                                "store": str(store),
+                            }
+                        ],
+                    ],
+                ) as olfaction_build:
+                    with patch(
+                        "fruitloops.cli_setup.cache_olfaction_annotations",
+                        return_value=[
+                            {
+                                "dataset": "flywire",
+                                "table": "flywire_neurons",
+                                "rows": "9",
+                                "status": "cached",
+                                "store": str(store),
+                            }
+                        ],
+                    ) as annotation_cache:
+                        output = run_cli(
+                            "setup",
+                            "--flywire",
+                            "--cache-annotations",
+                            "--cache-dir",
+                            str(cache_dir),
+                            "--store",
+                            str(store),
+                            "--csv",
+                        )
+
+        annotation_cache.assert_called_once()
+        self.assertEqual(olfaction_build.call_count, 2)
+        self.assertIn("flywire,annotation-cache,flywire_neurons,cached:9", output)
+        self.assertIn("flywire,olfaction-rebuild,olf_neurons,built:6", output)
+
+    def test_admin_passthrough_preserves_global_data_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            data = Path(tmp)
+            write_csv(
+                data / "manifest.csv",
+                [
+                    {
+                        "dataset": "flywire",
+                        "collection": "analysis_outputs",
+                        "file_id": "summary",
+                        "relative_path": "flywire/analysis_outputs/summary.csv",
+                        "rows": "1",
+                        "columns": "LN_type",
+                        "size_bytes": "1",
+                        "sha256": "x",
+                    }
+                ],
+            )
+            write_csv(data / "flywire/analysis_outputs/summary.csv", [{"LN_type": "il3LN6"}])
+
+            output = run_cli("--data-dir", str(data), "admin", "status", "--csv")
+
+        self.assertIn("dataset,flywire,1 tables", output)
 
     def test_path_defaults_do_not_depend_on_cwd(self) -> None:
         with tempfile.TemporaryDirectory() as tmp, patch.dict(
@@ -154,6 +297,64 @@ class CliTest(unittest.TestCase):
             )
 
         self.assertIn("L,ipsi,2,5", output)
+
+    def test_table_command_lists_queries_and_aggregates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            data = Path(tmp)
+            write_csv(
+                data / "manifest.csv",
+                [
+                    {
+                        "dataset": "flywire",
+                        "collection": "source_audit",
+                        "file_id": "audit",
+                        "relative_path": "flywire/source_audit/orn.csv",
+                        "rows": "3",
+                        "columns": "LN_type|analysis_hemisphere|input_relation|n_synapses",
+                        "size_bytes": "1",
+                        "sha256": "x",
+                    }
+                ],
+            )
+            write_csv(
+                data / "flywire/source_audit/orn.csv",
+                [
+                    {"LN_type": "il3LN6", "analysis_hemisphere": "L", "input_relation": "ipsi", "n_synapses": "2"},
+                    {"LN_type": "il3LN6", "analysis_hemisphere": "L", "input_relation": "ipsi", "n_synapses": "3"},
+                    {"LN_type": "lLN2T", "analysis_hemisphere": "L", "input_relation": "ipsi", "n_synapses": "100"},
+                ],
+            )
+
+            listed = run_cli("--data-dir", str(data), "table", "--flywire", "--contains", "orn", "--csv")
+            queried = run_cli(
+                "--data-dir",
+                str(data),
+                "table",
+                "audit",
+                "--where",
+                "LN_type=il3LN6",
+                "--select",
+                "LN_type,n_synapses",
+                "--csv",
+            )
+            aggregated = run_cli(
+                "--data-dir",
+                str(data),
+                "table",
+                "audit",
+                "--where",
+                "LN_type=il3LN6",
+                "--by",
+                "analysis_hemisphere,input_relation",
+                "--sum",
+                "n_synapses",
+                "--csv",
+            )
+
+        self.assertIn("flywire,source_audit,audit", listed)
+        self.assertIn("LN_type,n_synapses", queried)
+        self.assertIn("il3LN6,2", queried)
+        self.assertIn("L,ipsi,2,5", aggregated)
 
     def test_plot_spec_defaults_to_png(self) -> None:
         spec = PlotSpec(kind="scatter", x="x", y="y")
