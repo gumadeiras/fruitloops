@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.4 - 2026-05-13
+
 ### Features
 
 - Added top-level `fruitloops olf` access to offline olfaction queries.
@@ -18,6 +20,8 @@
   olfaction workflows before LN-specific table queries.
 - Added README and agent examples for DA2 PN direct targets in lateral horn
   and mushroom body.
+- Updated the Homebrew tap to install bulk, live API, plotting, Arrow, and
+  pandas runtime dependencies by default.
 
 ## 0.1.3 - 2026-05-13
 
