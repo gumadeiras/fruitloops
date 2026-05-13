@@ -607,6 +607,63 @@ class CliTest(unittest.TestCase):
                 "--format",
                 "csv",
             )
+            class_output = run_cli(
+                "olf",
+                "--store",
+                str(store),
+                "classes",
+                "--dataset",
+                "flywire",
+                "--region",
+                "AL",
+                "--class",
+                "ORN",
+                "--format",
+                "csv",
+            )
+            glomerulus_output = run_cli(
+                "olf",
+                "--store",
+                str(store),
+                "glomerulus",
+                "DM1",
+                "--dataset",
+                "flywire",
+                "--format",
+                "csv",
+            )
+            pathway_output = run_cli(
+                "olf",
+                "--store",
+                str(store),
+                "pathway",
+                "ORN",
+                "PN",
+                "--dataset",
+                "flywire",
+                "--glomerulus",
+                "DM1",
+                "--by-side",
+                "--format",
+                "csv",
+            )
+            inputs_output = run_cli(
+                "olf",
+                "--store",
+                str(store),
+                "inputs",
+                "--dataset",
+                "flywire",
+                "--target-class",
+                "PN",
+                "--source-class",
+                "ORN",
+                "--glomerulus",
+                "DM1",
+                "--by-side",
+                "--format",
+                "csv",
+            )
 
         self.assertIn("flywire,flywire_proofread_connections,4,imported", build_output)
         self.assertIn("all,olf_annotations,5,built", build_output)
@@ -615,6 +672,10 @@ class CliTest(unittest.TestCase):
         self.assertIn("flywire,2001,DM1_lPN_R,,PN,DM1,R", pn_output)
         self.assertIn("flywire,2001,DM1_lPN_R,DM1,1,12,R,R,ipsi", orn_input_output)
         self.assertIn("flywire,2001,DM1_lPN_R,DM1,1,5,R,L,contra", orn_input_output)
+        self.assertIn("flywire,AL,R,ORN,DM1,R,1,0,12,12", class_output)
+        self.assertIn("flywire,DM1,2,1,0,3,2,1,17", glomerulus_output)
+        self.assertIn("flywire,ORN,PN,DM1,DM1,AL,R,ipsi,ipsi,ipsi,1,1,12", pathway_output)
+        self.assertIn("flywire,2001,DM1_lPN_R,PN,DM1,ORN,DM1,1,12,R,R,R,ipsi,ipsi,ipsi", inputs_output)
 
 
 def run_cli(*args: str) -> str:

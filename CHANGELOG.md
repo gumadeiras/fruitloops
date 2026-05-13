@@ -7,6 +7,8 @@
 - Added top-level `fruitloops olf` access to offline olfaction queries.
 - Added canonical olfaction pathway, neuron-region, and cell-type summary
   tables with pre/post/neuropil side relation fields.
+- Added `fruitloops olf classes`, `glomerulus`, `pathway`, and `inputs`
+  commands for broad olfactory circuit queries beyond LNs.
 
 ## 0.1.3 - 2026-05-13
 

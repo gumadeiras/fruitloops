@@ -8,13 +8,20 @@ from .cli_helpers import add_dataset_arg, add_format_arg, unique_values
 from .formatting import emit_rows
 from .olfaction import (
     build_olfaction_cache,
+    olfaction_class_summary,
     olfaction_edges,
+    olfaction_glomerulus_summary,
+    olfaction_input_summary,
     olfaction_neurons,
     olfaction_orn_inputs,
+    olfaction_pathway_summary,
     olfaction_pns,
     olfaction_tables,
 )
 from .olfaction_live import cache_olfaction_annotations
+
+
+CELL_CLASS_CHOICES = ("ORN", "PN", "LN", "KC", "MBON", "APL", "DAN")
 
 
 def add_olfaction_parser(subparsers, *, name: str = "olfaction", hidden: bool = False) -> None:
@@ -53,6 +60,47 @@ def add_olfaction_parser(subparsers, *, name: str = "olfaction", hidden: bool = 
     add_olfaction_neuron_args(olf_neurons)
     olf_neurons.set_defaults(func=cmd_olfaction_neurons)
 
+    olf_classes = olfaction_subparsers.add_parser("classes", help="Summarize olfactory neuron classes.")
+    add_dataset_arg(olf_classes, ("hemibrain", "flywire"))
+    olf_classes.add_argument("--region", choices=("AL", "LH", "MB"))
+    olf_classes.add_argument("--class", dest="cell_class", choices=CELL_CLASS_CHOICES)
+    olf_classes.add_argument("--glomerulus")
+    olf_classes.add_argument("--limit", type=int, default=100)
+    add_format_arg(olf_classes)
+    olf_classes.set_defaults(func=cmd_olfaction_classes)
+
+    olf_glomerulus = olfaction_subparsers.add_parser("glomerulus", help="Summarize glomerulus inventory and ORN->PN input.")
+    olf_glomerulus.add_argument("name", nargs="?")
+    add_dataset_arg(olf_glomerulus, ("hemibrain", "flywire"))
+    olf_glomerulus.add_argument("--limit", type=int, default=100)
+    add_format_arg(olf_glomerulus)
+    olf_glomerulus.set_defaults(func=cmd_olfaction_glomerulus)
+
+    olf_pathway = olfaction_subparsers.add_parser("pathway", help="Summarize source-class to target-class pathways.")
+    olf_pathway.add_argument("source_class", choices=CELL_CLASS_CHOICES)
+    olf_pathway.add_argument("target_class", choices=CELL_CLASS_CHOICES)
+    add_dataset_arg(olf_pathway, ("hemibrain", "flywire"))
+    olf_pathway.add_argument("--region", choices=("AL", "LH", "MB"))
+    olf_pathway.add_argument("--glomerulus")
+    olf_pathway.add_argument("--source-glomerulus")
+    olf_pathway.add_argument("--target-glomerulus")
+    olf_pathway.add_argument("--by-side", action="store_true")
+    olf_pathway.add_argument("--limit", type=int, default=100)
+    add_format_arg(olf_pathway)
+    olf_pathway.set_defaults(func=cmd_olfaction_pathway)
+
+    olf_inputs = olfaction_subparsers.add_parser("inputs", help="Summarize inputs onto target neurons.")
+    add_dataset_arg(olf_inputs, ("hemibrain", "flywire"))
+    olf_inputs.add_argument("--target-class", choices=CELL_CLASS_CHOICES)
+    olf_inputs.add_argument("--source-class", choices=CELL_CLASS_CHOICES)
+    olf_inputs.add_argument("--target-id")
+    olf_inputs.add_argument("--glomerulus")
+    olf_inputs.add_argument("--region", choices=("AL", "LH", "MB"))
+    olf_inputs.add_argument("--by-side", action="store_true")
+    olf_inputs.add_argument("--limit", type=int, default=100)
+    add_format_arg(olf_inputs)
+    olf_inputs.set_defaults(func=cmd_olfaction_inputs)
+
     olf_edges = olfaction_subparsers.add_parser("edges", help="Query AL/LH/MB connection rows.")
     add_dataset_arg(olf_edges, ("hemibrain", "flywire"))
     olf_edges.add_argument("--region", choices=("AL", "LH", "MB"))
@@ -86,7 +134,7 @@ def add_olfaction_parser(subparsers, *, name: str = "olfaction", hidden: bool = 
 def add_olfaction_neuron_args(parser: argparse.ArgumentParser) -> None:
     add_dataset_arg(parser, ("hemibrain", "flywire"))
     parser.add_argument("--region", choices=("AL", "LH", "MB"))
-    parser.add_argument("--class", dest="cell_class", choices=("ORN", "PN", "LN", "KC", "MBON", "APL", "DAN"))
+    parser.add_argument("--class", dest="cell_class", choices=CELL_CLASS_CHOICES)
     parser.add_argument("--glomerulus")
     parser.add_argument("--contains")
     parser.add_argument("--limit", type=int, default=50)
@@ -128,6 +176,63 @@ def cmd_olfaction_neurons(args: argparse.Namespace, data) -> int:
         cell_class=args.cell_class,
         glomerulus=args.glomerulus,
         contains=args.contains,
+        limit=args.limit,
+    )
+    emit_dynamic_rows(rows, args.format)
+    return 0
+
+
+def cmd_olfaction_classes(args: argparse.Namespace, data) -> int:
+    rows = olfaction_class_summary(
+        store=args.store,
+        dataset=args.dataset,
+        region=args.region,
+        cell_class=args.cell_class,
+        glomerulus=args.glomerulus,
+        limit=args.limit,
+    )
+    emit_dynamic_rows(rows, args.format)
+    return 0
+
+
+def cmd_olfaction_glomerulus(args: argparse.Namespace, data) -> int:
+    rows = olfaction_glomerulus_summary(
+        store=args.store,
+        dataset=args.dataset,
+        glomerulus=args.name,
+        limit=args.limit,
+    )
+    emit_dynamic_rows(rows, args.format)
+    return 0
+
+
+def cmd_olfaction_pathway(args: argparse.Namespace, data) -> int:
+    rows = olfaction_pathway_summary(
+        store=args.store,
+        dataset=args.dataset,
+        source_class=args.source_class,
+        target_class=args.target_class,
+        region=args.region,
+        glomerulus=args.glomerulus,
+        source_glomerulus=args.source_glomerulus,
+        target_glomerulus=args.target_glomerulus,
+        by_side=args.by_side,
+        limit=args.limit,
+    )
+    emit_dynamic_rows(rows, args.format)
+    return 0
+
+
+def cmd_olfaction_inputs(args: argparse.Namespace, data) -> int:
+    rows = olfaction_input_summary(
+        store=args.store,
+        dataset=args.dataset,
+        target_class=args.target_class,
+        source_class=args.source_class,
+        target_id=args.target_id,
+        glomerulus=args.glomerulus,
+        region=args.region,
+        by_side=args.by_side,
         limit=args.limit,
     )
     emit_dynamic_rows(rows, args.format)

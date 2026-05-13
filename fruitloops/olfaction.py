@@ -627,6 +627,197 @@ def olfaction_pns(
     )
 
 
+def olfaction_class_summary(
+    store: Path = DEFAULT_DUCKDB_PATH,
+    dataset: str | None = None,
+    region: str | None = None,
+    cell_class: str | None = None,
+    glomerulus: str | None = None,
+    limit: int = 100,
+    prefix: str = OLFACTION_PREFIX,
+) -> list[dict[str, str]]:
+    where, params = summary_filters(dataset, region, cell_class, glomerulus)
+    sql = f"""
+    SELECT dataset, region, neuropil_side, cell_class, glomerulus, cell_body_side,
+           neurons, input_synapses, output_synapses, total_synapses
+    FROM {safe_identifier(prefix)}_cell_type_summary
+    {where}
+    ORDER BY total_synapses DESC, neurons DESC, dataset, region, cell_class, glomerulus
+    LIMIT ?
+    """
+    return read_sql(store, sql, params + [limit])
+
+
+def olfaction_glomerulus_summary(
+    store: Path = DEFAULT_DUCKDB_PATH,
+    dataset: str | None = None,
+    glomerulus: str | None = None,
+    limit: int = 100,
+    prefix: str = OLFACTION_PREFIX,
+) -> list[dict[str, str]]:
+    neuron_where = ["glomerulus != ''"]
+    pathway_where = ["pre_class = 'ORN'", "post_class = 'PN'", "post_glomerulus != ''"]
+    neuron_params: list[str] = []
+    pathway_params: list[str] = []
+    if dataset:
+        neuron_where.append("dataset = ?")
+        pathway_where.append("dataset = ?")
+        neuron_params.append(dataset)
+        pathway_params.append(dataset)
+    if glomerulus:
+        neuron_where.append("glomerulus = ?")
+        pathway_where.append("post_glomerulus = ?")
+        neuron_params.append(glomerulus)
+        pathway_params.append(glomerulus)
+    sql = f"""
+    WITH neuron_counts AS (
+        SELECT dataset,
+               glomerulus,
+               count(DISTINCT CASE WHEN cell_class = 'ORN' THEN body_id END) AS orn_count,
+               count(DISTINCT CASE WHEN cell_class = 'PN' THEN body_id END) AS pn_count,
+               count(DISTINCT CASE WHEN cell_class = 'LN' THEN body_id END) AS ln_count,
+               count(DISTINCT body_id) AS total_neurons
+        FROM {safe_identifier(prefix)}_neurons
+        WHERE {" AND ".join(neuron_where)}
+        GROUP BY dataset, glomerulus
+    ),
+    orn_to_pn AS (
+        SELECT dataset,
+               post_glomerulus AS glomerulus,
+               count(DISTINCT pre_id) AS orn_input_pre_neurons,
+               count(DISTINCT post_id) AS pn_target_neurons,
+               sum(synapses) AS orn_to_pn_synapses
+        FROM {safe_identifier(prefix)}_pathway_edges
+        WHERE {" AND ".join(pathway_where)}
+        GROUP BY dataset, post_glomerulus
+    )
+    SELECT n.dataset,
+           n.glomerulus,
+           n.orn_count,
+           n.pn_count,
+           n.ln_count,
+           n.total_neurons,
+           coalesce(p.orn_input_pre_neurons, 0) AS orn_input_pre_neurons,
+           coalesce(p.pn_target_neurons, 0) AS pn_target_neurons,
+           coalesce(p.orn_to_pn_synapses, 0) AS orn_to_pn_synapses
+    FROM neuron_counts AS n
+    LEFT JOIN orn_to_pn AS p
+      ON p.dataset = n.dataset AND p.glomerulus = n.glomerulus
+    ORDER BY orn_to_pn_synapses DESC, total_neurons DESC, n.dataset, n.glomerulus
+    LIMIT ?
+    """
+    return read_sql(store, sql, neuron_params + pathway_params + [limit])
+
+
+def olfaction_pathway_summary(
+    store: Path = DEFAULT_DUCKDB_PATH,
+    dataset: str | None = None,
+    source_class: str | None = None,
+    target_class: str | None = None,
+    region: str | None = None,
+    glomerulus: str | None = None,
+    source_glomerulus: str | None = None,
+    target_glomerulus: str | None = None,
+    by_side: bool = False,
+    limit: int = 100,
+    prefix: str = OLFACTION_PREFIX,
+) -> list[dict[str, str]]:
+    where, params = pathway_filters(
+        dataset,
+        source_class,
+        target_class,
+        region,
+        glomerulus,
+        source_glomerulus,
+        target_glomerulus,
+    )
+    side_columns = ""
+    group_side_columns = ""
+    if by_side:
+        side_fields = "neuropil_side, pre_to_post_relation, pre_to_neuropil_relation, post_to_neuropil_relation"
+        side_columns = f", {side_fields}"
+        group_side_columns = f", {side_fields}"
+    sql = f"""
+    SELECT dataset, pre_class AS source_class, post_class AS target_class,
+           pre_glomerulus AS source_glomerulus, post_glomerulus AS target_glomerulus,
+           region{side_columns},
+           count(DISTINCT pre_id) AS source_neurons,
+           count(DISTINCT post_id) AS target_neurons,
+           sum(synapses) AS synapses
+    FROM {safe_identifier(prefix)}_pathway_edges
+    {where}
+    GROUP BY dataset, pre_class, post_class, pre_glomerulus, post_glomerulus, region
+             {group_side_columns}
+    ORDER BY synapses DESC, dataset, source_class, target_class
+    LIMIT ?
+    """
+    return read_sql(store, sql, params + [limit])
+
+
+def olfaction_input_summary(
+    store: Path = DEFAULT_DUCKDB_PATH,
+    dataset: str | None = None,
+    target_class: str | None = None,
+    source_class: str | None = None,
+    target_id: str | None = None,
+    glomerulus: str | None = None,
+    region: str | None = None,
+    by_side: bool = False,
+    limit: int = 100,
+    prefix: str = OLFACTION_PREFIX,
+) -> list[dict[str, str]]:
+    where = []
+    params: list[str | int] = []
+    if dataset:
+        where.append("dataset = ?")
+        params.append(dataset)
+    if target_class:
+        where.append("post_class = ?")
+        params.append(target_class.upper())
+    if source_class:
+        where.append("pre_class = ?")
+        params.append(source_class.upper())
+    if target_id:
+        where.append("post_id = ?")
+        params.append(target_id)
+    if glomerulus:
+        where.append("post_glomerulus = ?")
+        params.append(glomerulus)
+    if region:
+        where.append("region = ?")
+        params.append(region.upper())
+    filters = f"WHERE {' AND '.join(where)}" if where else ""
+    side_columns = ""
+    group_side_columns = ""
+    if by_side:
+        side_columns = (
+            ", post_side AS target_side, pre_side AS source_side, neuropil_side,"
+            " pre_to_post_relation, pre_to_neuropil_relation, post_to_neuropil_relation"
+        )
+        group_side_columns = (
+            ", post_side, pre_side, neuropil_side,"
+            " pre_to_post_relation, pre_to_neuropil_relation, post_to_neuropil_relation"
+        )
+    sql = f"""
+    SELECT dataset,
+           post_id AS target_id,
+           post_name AS target_name,
+           post_class AS target_class,
+           post_glomerulus AS target_glomerulus,
+           pre_class AS source_class,
+           pre_glomerulus AS source_glomerulus,
+           count(DISTINCT pre_id) AS source_neurons,
+           sum(synapses) AS synapses{side_columns}
+    FROM {safe_identifier(prefix)}_pathway_edges
+    {filters}
+    GROUP BY dataset, post_id, post_name, post_class, post_glomerulus, pre_class, pre_glomerulus
+             {group_side_columns}
+    ORDER BY synapses DESC, dataset, target_id, source_class
+    LIMIT ?
+    """
+    return read_sql(store, sql, params + [limit])
+
+
 def olfaction_orn_inputs(
     store: Path = DEFAULT_DUCKDB_PATH,
     dataset: str | None = None,
@@ -669,6 +860,64 @@ def olfaction_orn_inputs(
     LIMIT ?
     """
     return read_sql(store, sql, params + [limit])
+
+
+def summary_filters(
+    dataset: str | None,
+    region: str | None,
+    cell_class: str | None,
+    glomerulus: str | None,
+) -> tuple[str, list[str]]:
+    where = []
+    params = []
+    if dataset:
+        where.append("dataset = ?")
+        params.append(dataset)
+    if region:
+        where.append("region = ?")
+        params.append(region.upper())
+    if cell_class:
+        where.append("cell_class = ?")
+        params.append(cell_class.upper())
+    if glomerulus:
+        where.append("glomerulus = ?")
+        params.append(glomerulus)
+    return (f"WHERE {' AND '.join(where)}" if where else ""), params
+
+
+def pathway_filters(
+    dataset: str | None,
+    source_class: str | None,
+    target_class: str | None,
+    region: str | None,
+    glomerulus: str | None,
+    source_glomerulus: str | None,
+    target_glomerulus: str | None,
+) -> tuple[str, list[str]]:
+    where = []
+    params = []
+    if dataset:
+        where.append("dataset = ?")
+        params.append(dataset)
+    if source_class:
+        where.append("pre_class = ?")
+        params.append(source_class.upper())
+    if target_class:
+        where.append("post_class = ?")
+        params.append(target_class.upper())
+    if region:
+        where.append("region = ?")
+        params.append(region.upper())
+    if glomerulus:
+        where.append("(pre_glomerulus = ? OR post_glomerulus = ?)")
+        params.extend([glomerulus, glomerulus])
+    if source_glomerulus:
+        where.append("pre_glomerulus = ?")
+        params.append(source_glomerulus)
+    if target_glomerulus:
+        where.append("post_glomerulus = ?")
+        params.append(target_glomerulus)
+    return (f"WHERE {' AND '.join(where)}" if where else ""), params
 
 
 def neuron_filters(
