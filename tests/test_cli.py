@@ -22,6 +22,7 @@ from fruitloops.bulk import (
 from fruitloops.cache import DEFAULT_CACHE_DIR, get_or_fetch, list_cache
 from fruitloops.env import load_env_file
 from fruitloops.live import parse_in_filters, parse_ints
+from fruitloops.olfaction_labels import classify_name
 from fruitloops.paths import default_data_dir, default_duckdb_path, default_live_cache_dir
 from fruitloops.plotting import PlotSpec
 
@@ -208,6 +209,12 @@ class CliTest(unittest.TestCase):
             with patch("fruitloops.paths.package_root", return_value=Path(tmp) / "missing-package"):
                 with patch("fruitloops.paths.sys.prefix", str(Path(tmp) / "missing-prefix")):
                     self.assertEqual(default_data_dir(), Path(tmp).resolve() / "xdg" / "fruitloops" / "data")
+
+    def test_olfaction_label_classifier_covers_olfactory_targets(self) -> None:
+        self.assertEqual(classify_name("OSN_DM1_R"), "ORN")
+        self.assertEqual(classify_name("lateral horn neuron LHN_R"), "LHN")
+        self.assertEqual(classify_name("lateral horn target"), "")
+        self.assertEqual(classify_name("MBON01"), "MBON")
 
     def test_missing_required_arguments_print_command_help(self) -> None:
         self.assertIn("usage: fruitloops schema", run_cli("schema"))
@@ -664,6 +671,23 @@ class CliTest(unittest.TestCase):
                 "--format",
                 "csv",
             )
+            outputs_output = run_cli(
+                "olf",
+                "--store",
+                str(store),
+                "outputs",
+                "--dataset",
+                "flywire",
+                "--source-class",
+                "PN",
+                "--target-class",
+                "KC",
+                "--region",
+                "MB",
+                "--by-side",
+                "--format",
+                "csv",
+            )
 
         self.assertIn("flywire,flywire_proofread_connections,4,imported", build_output)
         self.assertIn("all,olf_annotations,5,built", build_output)
@@ -676,6 +700,7 @@ class CliTest(unittest.TestCase):
         self.assertIn("flywire,DM1,2,1,0,3,2,1,17", glomerulus_output)
         self.assertIn("flywire,ORN,PN,DM1,DM1,AL,R,ipsi,ipsi,ipsi,1,1,12", pathway_output)
         self.assertIn("flywire,2001,DM1_lPN_R,PN,DM1,ORN,DM1,1,12,R,R,R,ipsi,ipsi,ipsi", inputs_output)
+        self.assertIn("flywire,2001,DM1_lPN_R,PN,DM1,KC,,1,7,R,R,R,ipsi,ipsi,ipsi", outputs_output)
 
 
 def run_cli(*args: str) -> str:

@@ -14,6 +14,7 @@ from .olfaction import (
     olfaction_input_summary,
     olfaction_neurons,
     olfaction_orn_inputs,
+    olfaction_output_summary,
     olfaction_pathway_summary,
     olfaction_pns,
     olfaction_tables,
@@ -21,7 +22,7 @@ from .olfaction import (
 from .olfaction_live import cache_olfaction_annotations
 
 
-CELL_CLASS_CHOICES = ("ORN", "PN", "LN", "KC", "MBON", "APL", "DAN")
+CELL_CLASS_CHOICES = ("ORN", "PN", "LN", "LHN", "KC", "MBON", "APL", "DAN")
 
 
 def add_olfaction_parser(subparsers, *, name: str = "olfaction", hidden: bool = False) -> None:
@@ -100,6 +101,18 @@ def add_olfaction_parser(subparsers, *, name: str = "olfaction", hidden: bool = 
     olf_inputs.add_argument("--limit", type=int, default=100)
     add_format_arg(olf_inputs)
     olf_inputs.set_defaults(func=cmd_olfaction_inputs)
+
+    olf_outputs = olfaction_subparsers.add_parser("outputs", help="Summarize outputs from source neurons.")
+    add_dataset_arg(olf_outputs, ("hemibrain", "flywire"))
+    olf_outputs.add_argument("--source-class", choices=CELL_CLASS_CHOICES)
+    olf_outputs.add_argument("--target-class", choices=CELL_CLASS_CHOICES)
+    olf_outputs.add_argument("--source-id")
+    olf_outputs.add_argument("--glomerulus")
+    olf_outputs.add_argument("--region", choices=("AL", "LH", "MB"))
+    olf_outputs.add_argument("--by-side", action="store_true")
+    olf_outputs.add_argument("--limit", type=int, default=100)
+    add_format_arg(olf_outputs)
+    olf_outputs.set_defaults(func=cmd_olfaction_outputs)
 
     olf_edges = olfaction_subparsers.add_parser("edges", help="Query AL/LH/MB connection rows.")
     add_dataset_arg(olf_edges, ("hemibrain", "flywire"))
@@ -230,6 +243,22 @@ def cmd_olfaction_inputs(args: argparse.Namespace, data) -> int:
         target_class=args.target_class,
         source_class=args.source_class,
         target_id=args.target_id,
+        glomerulus=args.glomerulus,
+        region=args.region,
+        by_side=args.by_side,
+        limit=args.limit,
+    )
+    emit_dynamic_rows(rows, args.format)
+    return 0
+
+
+def cmd_olfaction_outputs(args: argparse.Namespace, data) -> int:
+    rows = olfaction_output_summary(
+        store=args.store,
+        dataset=args.dataset,
+        source_class=args.source_class,
+        target_class=args.target_class,
+        source_id=args.source_id,
         glomerulus=args.glomerulus,
         region=args.region,
         by_side=args.by_side,

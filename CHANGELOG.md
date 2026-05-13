@@ -9,6 +9,8 @@
   tables with pre/post/neuropil side relation fields.
 - Added `fruitloops olf classes`, `glomerulus`, `pathway`, and `inputs`
   commands for broad olfactory circuit queries beyond LNs.
+- Added broader olfactory class detection for sensory, lateral horn, and
+  mushroom body target annotations plus `fruitloops olf outputs`.
 
 ### Changes
 

@@ -63,6 +63,7 @@ python3 -m fruitloops table flywire:source_audit/orn_partner_counts_by_hemispher
 python3 -m fruitloops olf classes --flywire --region AL --csv
 python3 -m fruitloops olf glomerulus DM1 --flywire --csv
 python3 -m fruitloops olf inputs --target-class PN --source-class ORN --glomerulus DM1 --by-side --csv
+python3 -m fruitloops olf outputs --source-class PN --target-class KC --region MB --flywire --csv
 python3 -m fruitloops olf pathway PN KC --region MB --flywire --csv
 python3 -m fruitloops find il3LN6 --flywire --json
 python3 -m fruitloops partners il3LN6 --flywire --orn --csv

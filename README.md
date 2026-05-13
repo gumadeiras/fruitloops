@@ -114,6 +114,7 @@ fruitloops olf classes --flywire --region AL --csv
 fruitloops olf glomerulus DM1 --flywire --csv
 fruitloops olf pns --glomerulus DM1 --hemibrain --csv
 fruitloops olf inputs --target-class PN --source-class ORN --glomerulus DM1 --by-side --flywire --csv
+fruitloops olf outputs --source-class PN --target-class KC --region MB --flywire --csv
 fruitloops olf pathway ORN LN --region AL --flywire --csv
 fruitloops olf pathway PN KC --region MB --flywire --csv
 ```
@@ -194,6 +195,7 @@ fruitloops olf neurons --dataset flywire --region AL --class ORN --format csv
 fruitloops olf classes --dataset flywire --region AL --format csv
 fruitloops olf glomerulus DM1 --dataset flywire --format csv
 fruitloops olf inputs --dataset hemibrain --target-class PN --source-class ORN --glomerulus DM1 --by-side --format csv
+fruitloops olf outputs --dataset flywire --source-class PN --target-class KC --region MB --format csv
 fruitloops olf pathway PN KC --dataset flywire --region MB --format csv
 fruitloops olf edges --dataset flywire --region LH --min-synapses 5 --format csv
 ```

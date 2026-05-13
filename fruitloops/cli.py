@@ -330,6 +330,7 @@ fruitloops setup --csv
 fruitloops olf glomerulus DM1 --flywire --csv
 fruitloops olf pns --glomerulus DM1 --hemibrain --csv
 fruitloops olf inputs --target-class PN --source-class ORN --glomerulus DM1 --by-side --csv
+fruitloops olf outputs --source-class PN --target-class KC --region MB --flywire --csv
 fruitloops olf pathway PN KC --region MB --flywire --csv
 fruitloops table --flywire --contains full_summary --csv
 fruitloops table comparison:matched_ln_class_similarity --schema --csv

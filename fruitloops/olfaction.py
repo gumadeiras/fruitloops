@@ -818,6 +818,70 @@ def olfaction_input_summary(
     return read_sql(store, sql, params + [limit])
 
 
+def olfaction_output_summary(
+    store: Path = DEFAULT_DUCKDB_PATH,
+    dataset: str | None = None,
+    source_class: str | None = None,
+    target_class: str | None = None,
+    source_id: str | None = None,
+    glomerulus: str | None = None,
+    region: str | None = None,
+    by_side: bool = False,
+    limit: int = 100,
+    prefix: str = OLFACTION_PREFIX,
+) -> list[dict[str, str]]:
+    where = []
+    params: list[str | int] = []
+    if dataset:
+        where.append("dataset = ?")
+        params.append(dataset)
+    if source_class:
+        where.append("pre_class = ?")
+        params.append(source_class.upper())
+    if target_class:
+        where.append("post_class = ?")
+        params.append(target_class.upper())
+    if source_id:
+        where.append("pre_id = ?")
+        params.append(source_id)
+    if glomerulus:
+        where.append("pre_glomerulus = ?")
+        params.append(glomerulus)
+    if region:
+        where.append("region = ?")
+        params.append(region.upper())
+    filters = f"WHERE {' AND '.join(where)}" if where else ""
+    side_columns = ""
+    group_side_columns = ""
+    if by_side:
+        side_columns = (
+            ", pre_side AS source_side, post_side AS target_side, neuropil_side,"
+            " pre_to_post_relation, pre_to_neuropil_relation, post_to_neuropil_relation"
+        )
+        group_side_columns = (
+            ", pre_side, post_side, neuropil_side,"
+            " pre_to_post_relation, pre_to_neuropil_relation, post_to_neuropil_relation"
+        )
+    sql = f"""
+    SELECT dataset,
+           pre_id AS source_id,
+           pre_name AS source_name,
+           pre_class AS source_class,
+           pre_glomerulus AS source_glomerulus,
+           post_class AS target_class,
+           post_glomerulus AS target_glomerulus,
+           count(DISTINCT post_id) AS target_neurons,
+           sum(synapses) AS synapses{side_columns}
+    FROM {safe_identifier(prefix)}_pathway_edges
+    {filters}
+    GROUP BY dataset, pre_id, pre_name, pre_class, pre_glomerulus, post_class, post_glomerulus
+             {group_side_columns}
+    ORDER BY synapses DESC, dataset, source_id, target_class
+    LIMIT ?
+    """
+    return read_sql(store, sql, params + [limit])
+
+
 def olfaction_orn_inputs(
     store: Path = DEFAULT_DUCKDB_PATH,
     dataset: str | None = None,

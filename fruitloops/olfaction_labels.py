@@ -1,14 +1,22 @@
 from __future__ import annotations
 
+import re
+
 
 def sql_classify(expression: str) -> str:
     return f"""
     CASE
-        WHEN upper({expression}) LIKE '%ORN%' THEN 'ORN'
+        WHEN upper({expression}) LIKE '%LHN%'
+          OR upper({expression}) LIKE '%LHON%'
+          OR upper({expression}) LIKE '%LATERAL HORN NEURON%' THEN 'LHN'
+        WHEN regexp_matches(upper({expression}), '(^|[^A-Z0-9])ORN([^A-Z0-9]|$)')
+          OR regexp_matches(upper({expression}), '(^|[^A-Z0-9])OSN([^A-Z0-9]|$)')
+          OR upper({expression}) LIKE '%SENSORY%'
+          OR upper({expression}) LIKE '%OLFACTORY RECEPTOR%' THEN 'ORN'
+        WHEN upper({expression}) LIKE '%MBON%' THEN 'MBON'
         WHEN upper({expression}) LIKE '%PN%' OR upper({expression}) LIKE '%PROJECTION NEURON%' THEN 'PN'
         WHEN upper({expression}) LIKE '%LN%' OR upper({expression}) LIKE '%LOCAL%' THEN 'LN'
         WHEN upper({expression}) LIKE 'KC%' OR upper({expression}) LIKE '%KENYON%' THEN 'KC'
-        WHEN upper({expression}) LIKE '%MBON%' THEN 'MBON'
         WHEN upper({expression}) LIKE '%APL%' THEN 'APL'
         WHEN upper({expression}) LIKE '%DAN%' OR upper({expression}) LIKE '%PAM%' OR upper({expression}) LIKE '%PPL%' THEN 'DAN'
         ELSE ''
@@ -50,21 +58,32 @@ def sql_side(expression: str) -> str:
 
 def classify_name(value: str | None) -> str:
     text = (value or "").upper()
-    if "ORN" in text:
+    if "LHN" in text or "LHON" in text or "LATERAL HORN NEURON" in text:
+        return "LHN"
+    if (
+        has_class_token(text, "ORN")
+        or has_class_token(text, "OSN")
+        or "SENSORY" in text
+        or "OLFACTORY RECEPTOR" in text
+    ):
         return "ORN"
+    if "MBON" in text:
+        return "MBON"
     if "PN" in text or "PROJECTION NEURON" in text:
         return "PN"
     if "LN" in text or "LOCAL" in text:
         return "LN"
     if "KENYON" in text or text.startswith("KC") or "_KC" in text:
         return "KC"
-    if "MBON" in text:
-        return "MBON"
     if "APL" in text:
         return "APL"
     if "DAN" in text or "PAM" in text or "PPL" in text:
         return "DAN"
     return ""
+
+
+def has_class_token(text: str, token: str) -> bool:
+    return re.search(rf"(^|[^A-Z0-9]){re.escape(token)}([^A-Z0-9]|$)", text) is not None
 
 
 def infer_glomerulus(value: str | None) -> str:
