@@ -96,9 +96,9 @@ jobs:
 
       - name: Update fruitloops formula
         run: |
-          python fruitloops/scripts/update_homebrew_formula.py \
+          python homebrew-tap/scripts/update_formula.py \
             --formula homebrew-tap/Formula/fruitloops.rb \
-            --version "${{ steps.formula.outputs.version }}" \
+            --url "https://github.com/gumadeiras/fruitloops/releases/download/v${{ steps.formula.outputs.version }}/fruitloops-${{ steps.formula.outputs.version }}.tar.gz" \
             --sha256 "${{ steps.formula.outputs.sha256 }}"
 
       - name: Commit and push formula

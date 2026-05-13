@@ -24,7 +24,6 @@ from fruitloops.env import load_env_file
 from fruitloops.live import parse_in_filters, parse_ints
 from fruitloops.paths import default_data_dir, default_duckdb_path, default_live_cache_dir
 from fruitloops.plotting import PlotSpec
-from scripts.update_homebrew_formula import update_formula
 
 
 class CliTest(unittest.TestCase):
@@ -264,37 +263,6 @@ class CliTest(unittest.TestCase):
         self.assertIn("flywire,download,proofread-connections,ok,/tmp/proofread.feather", output)
         self.assertIn("flywire,import,flywire_proofread_connections,7,/tmp/proofread.feather", output)
         self.assertIn("flywire,optimize,flywire_proofread_connections,analyze,", output)
-
-    def test_homebrew_formula_update_rewrites_release_fields(self) -> None:
-        formula = """class Fruitloops < Formula
-  include Language::Python::Virtualenv
-
-  url "https://github.com/gumadeiras/fruitloops/releases/download/v0.1.0/fruitloops-0.1.0.tar.gz"
-  sha256 "abc123"
-  revision 1
-
-  def install
-    virtualenv_install_with_resources
-
-    (pkgshare/"requirements-all.txt").write <<~EOS
-    EOS
-  end
-
-  test do
-    assert_match "fruitloops 0.1.0", shell_output("#{bin}/fruitloops --version")
-    assert_match "Usage:", shell_output("#{bin}/fruitloops-install-extras --help")
-  end
-end
-"""
-
-        updated = update_formula(formula, "0.1.2", "def456")
-
-        self.assertIn("releases/download/v0.1.2/fruitloops-0.1.2.tar.gz", updated)
-        self.assertIn('sha256 "def456"', updated)
-        self.assertNotIn("revision 1", updated)
-        self.assertIn('(libexec/"share/fruitloops/data").install Dir["data/*"]', updated)
-        self.assertIn('assert_match "fruitloops 0.1.2"', updated)
-        self.assertIn('assert_match "flywire", shell_output("#{bin}/fruitloops datasets")', updated)
 
     def test_bulk_identifier_and_where_clause_are_sanitized(self) -> None:
         self.assertEqual(safe_identifier("pre.pt-root id"), "pre_pt_root_id")

@@ -40,7 +40,7 @@ gh run watch --workflow release --exit-status
 - Publishes to PyPI.
 - Computes the sdist sha256 from the built artifact.
 - Checks out `gumadeiras/homebrew-tap`.
-- Runs `scripts/update_homebrew_formula.py`.
+- Runs `homebrew-tap/scripts/update_formula.py`.
 - Commits and pushes `Formula/fruitloops.rb` if it changed.
 
 ## Homebrew Formula Requirements
@@ -68,8 +68,8 @@ sha256=$(curl -L --fail --silent \
   "https://github.com/gumadeiras/fruitloops/releases/download/v${version}/fruitloops-${version}.tar.gz" |
   shasum -a 256 | awk '{print $1}')
 
-python scripts/update_homebrew_formula.py \
+python ../homebrew-tap/scripts/update_formula.py \
   --formula ../homebrew-tap/Formula/fruitloops.rb \
-  --version "$version" \
+  --url "https://github.com/gumadeiras/fruitloops/releases/download/v${version}/fruitloops-${version}.tar.gz" \
   --sha256 "$sha256"
 ```
