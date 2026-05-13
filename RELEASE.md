@@ -43,6 +43,16 @@ gh run watch --workflow release --exit-status
 - Runs `homebrew-tap/scripts/update_formula.py`.
 - Commits and pushes `Formula/fruitloops.rb` if it changed.
 
+## Changelog Rules
+
+- Every release must update `CHANGELOG.md` before the release tag is created.
+- `CHANGELOG.md` must always keep an `Unreleased` section at the top for future entries.
+- New user-facing changes should be added to `Unreleased` as they land.
+- Use user-facing language whenever possible. Describe what changed for people using fruitloops, not repository maintenance.
+- Use these sections when they apply: `Features`, `Fixes`, and `Changes`.
+- Omit empty sections.
+- Do not include release chores unless the change affects how users install or use fruitloops.
+
 ## Homebrew Formula Requirements
 
 The formula must install the generated CSV snapshot from the sdist:
