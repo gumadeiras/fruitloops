@@ -18,6 +18,12 @@ from fruitloops.plotting import PlotSpec
 
 
 class CliTest(unittest.TestCase):
+    def test_no_command_prints_help(self) -> None:
+        output = run_cli()
+
+        self.assertIn("usage: fruitloops", output)
+        self.assertIn("datasets", output)
+
     def test_datasets_uses_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             data = Path(tmp)

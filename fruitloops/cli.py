@@ -47,7 +47,7 @@ def main(argv: list[str] | None = None) -> int:
         help="Optional env file for live database credentials. Defaults to .env.",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers = parser.add_subparsers(dest="command")
 
     datasets = subparsers.add_parser("datasets", help="List available datasets.")
     datasets.set_defaults(func=cmd_datasets)
@@ -240,6 +240,9 @@ def main(argv: list[str] | None = None) -> int:
     add_olfaction_parser(subparsers, FORMATS)
 
     args = parser.parse_args(argv)
+    if args.command is None:
+        parser.print_help()
+        return 0
     load_env_file(args.env_file)
     data = None if command_uses_no_manifest(args) else FruitloopsData(args.data_dir or default_data_dir())
     return args.func(args, data)
