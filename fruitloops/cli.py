@@ -93,7 +93,7 @@ def main(argv: list[str] | None = None) -> int:
     examples = subparsers.add_parser("examples", help="Show common task recipes.")
     examples.set_defaults(func=cmd_examples)
 
-    admin = subparsers.add_parser("admin", help="Run advanced commands: bulk, live, offline, olfaction, plot.")
+    admin = subparsers.add_parser("admin", help="Run advanced commands: bulk, live, offline, plot.")
     admin.add_argument("args", nargs=argparse.REMAINDER)
     admin.set_defaults(func=cmd_admin)
 
@@ -319,13 +319,18 @@ Advanced commands:
   bulk      Download/import/query bulk offline releases.
   live      Fetch data from live connectome APIs.
   offline   Use the offline-first live-query cache.
-  olfaction Build/query derived AL/LH/MB tables.
   plot      Render plots from CSV tables.
+
+Use top-level `fruitloops olf ...` for derived AL/LH/MB olfaction tables.
 """
 
 
 EXAMPLES = """fruitloops status --csv
 fruitloops setup --csv
+fruitloops olf glomerulus DM1 --flywire --csv
+fruitloops olf pns --glomerulus DM1 --hemibrain --csv
+fruitloops olf inputs --target-class PN --source-class ORN --glomerulus DM1 --by-side --csv
+fruitloops olf pathway PN KC --region MB --flywire --csv
 fruitloops table --flywire --contains full_summary --csv
 fruitloops table comparison:matched_ln_class_similarity --schema --csv
 fruitloops table comparison:matched_ln_class_similarity --contains LN_class=il3LN6 --json

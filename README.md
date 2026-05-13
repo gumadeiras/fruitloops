@@ -1,7 +1,7 @@
 # fruitloops
 
-Agent-friendly CLI for querying connectome analysis tables from hemibrain and
-FlyWire.
+Agent-friendly CLI for offline-first olfactory connectome queries across
+hemibrain and FlyWire.
 
 The repository keeps generated CSV products in a predictable layout:
 
@@ -55,6 +55,8 @@ Run directly from the repository:
 
 ```bash
 python -m fruitloops status
+python -m fruitloops olf glomerulus DM1 --flywire --csv
+python -m fruitloops olf inputs --target-class PN --source-class ORN --glomerulus DM1 --by-side --csv
 python -m fruitloops table --flywire --contains summary --csv
 python -m fruitloops table flywire:analysis_outputs/full_summary --head
 python -m fruitloops table comparison:matched_ln_class_similarity --contains LN_class=il3LN6 --json
@@ -105,7 +107,18 @@ fruitloops table comparison:matched_ln_class_similarity --path
 
 ## Common Agent Queries
 
-Aggregate any table without pandas:
+After `fruitloops setup`, use `fruitloops olf` for broad olfaction questions:
+
+```bash
+fruitloops olf classes --flywire --region AL --csv
+fruitloops olf glomerulus DM1 --flywire --csv
+fruitloops olf pns --glomerulus DM1 --hemibrain --csv
+fruitloops olf inputs --target-class PN --source-class ORN --glomerulus DM1 --by-side --flywire --csv
+fruitloops olf pathway ORN LN --region AL --flywire --csv
+fruitloops olf pathway PN KC --region MB --flywire --csv
+```
+
+Use table aggregation when you need legacy generated CSV products:
 
 ```bash
 fruitloops table flywire:source_audit/orn_partner_counts_by_hemisphere \
@@ -115,7 +128,7 @@ fruitloops table flywire:source_audit/orn_partner_counts_by_hemisphere \
   --csv
 ```
 
-Summarize ORN or PN partners for one LN:
+Specialized LN partner summaries are still available:
 
 ```bash
 fruitloops partners il3LN6 --flywire --orn --csv
@@ -145,7 +158,7 @@ fruitloops table comparison:matched_ln_class_similarity --contains LN_class=il3L
 
 Legacy commands such as `datasets`, `files`, `schema`, `head`, `query`,
 `aggregate`, and `ln` remain available for scripts. New interactive use should
-prefer `status`, `table`, `find`, `partners`, and `examples`.
+prefer `status`, `setup`, `olf`, `table`, `find`, `partners`, and `examples`.
 
 ## Olfaction Offline Cache
 
@@ -153,20 +166,22 @@ Build derived AL/LH/MB tables after importing bulk connectivity:
 
 ```bash
 fruitloops setup
-fruitloops admin olfaction tables
+fruitloops olf tables
 ```
 
 For complete names/classes/glomeruli, cache annotations once from live APIs and
 rebuild:
 
 ```bash
-fruitloops admin olfaction cache-annotations --dataset hemibrain
-fruitloops admin olfaction cache-annotations --dataset flywire
+fruitloops olf cache-annotations --dataset hemibrain
+fruitloops olf cache-annotations --dataset flywire
 ```
 
 The builder creates `olf_edges_by_neuropil`, `olf_edges_total` aggregated over
-AL/LH/MB, `olf_neuropil_membership`, `olf_neurons`, and `olf_provenance` in the
-DuckDB store. It uses imported annotation tables when available:
+AL/LH/MB, `olf_neuropil_membership`, `olf_neurons`, `olf_annotations`,
+`olf_neuron_regions`, `olf_pathway_edges`, `olf_pathway_summary`,
+`olf_cell_type_summary`, and `olf_provenance` in the DuckDB store. It uses
+imported annotation tables when available:
 
 - `hemibrain_olfaction_neuron_annotations` or `hemibrain_traced_neurons`
 - `flywire_hierarchical_neuron_annotations`
@@ -175,10 +190,12 @@ DuckDB store. It uses imported annotation tables when available:
 Example olfaction queries:
 
 ```bash
-fruitloops admin olfaction neurons --dataset flywire --region AL --class ORN --format csv
-fruitloops admin olfaction pns --dataset hemibrain --glomerulus DM1 --format csv
-fruitloops admin olfaction orn-inputs --dataset hemibrain --glomerulus DM1 --by-side --format csv
-fruitloops admin olfaction edges --dataset flywire --region LH --min-synapses 5 --format csv
+fruitloops olf neurons --dataset flywire --region AL --class ORN --format csv
+fruitloops olf classes --dataset flywire --region AL --format csv
+fruitloops olf glomerulus DM1 --dataset flywire --format csv
+fruitloops olf inputs --dataset hemibrain --target-class PN --source-class ORN --glomerulus DM1 --by-side --format csv
+fruitloops olf pathway PN KC --dataset flywire --region MB --format csv
+fruitloops olf edges --dataset flywire --region LH --min-synapses 5 --format csv
 ```
 
 ## Generic Plotting

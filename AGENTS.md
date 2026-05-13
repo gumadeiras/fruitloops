@@ -5,8 +5,8 @@
 - Commit with `scripts/committer "<subject>" -- <path>...`; it stages only listed paths. Use `--body` or `--body-file` for commit bodies.
 
 
-Fruitloops is an offline-first connectome query repo for hemibrain and FlyWire.
-Prefer local data before live APIs.
+Fruitloops is an offline-first olfactory connectome query repo for hemibrain
+and FlyWire. Prefer local data before live APIs.
 
 ## Rules
 
@@ -14,8 +14,8 @@ Prefer local data before live APIs.
 - Use `.env.example` for required env names.
 - Use `python3 -m fruitloops ...` from repo root.
 - Prefer CSV/JSON/JSONL output for downstream analysis.
-- Prefer top-level `status`, `table`, `find`, `partners`, `examples`, and `setup`.
-- Use `admin` for advanced commands: `bulk`, `live`, `offline`, `olfaction`, and `plot`.
+- Prefer top-level `status`, `setup`, `olf`, `table`, `find`, `partners`, and `examples`.
+- Use `admin` for advanced commands: `bulk`, `live`, `offline`, and `plot`.
 - Do not install extras; one editable install includes runtime dependencies: `python3 -m pip install -e .`.
 - Run `python3 -m fruitloops setup` to create cache dirs, import practical bulk tables, and build olfaction tables.
 - For large live/API results, use `admin offline fetch` so results are cached.
@@ -60,6 +60,10 @@ python3 -m fruitloops table flywire:source_audit/orn_partner_counts_by_hemispher
 ## Common Connectome Queries
 
 ```bash
+python3 -m fruitloops olf classes --flywire --region AL --csv
+python3 -m fruitloops olf glomerulus DM1 --flywire --csv
+python3 -m fruitloops olf inputs --target-class PN --source-class ORN --glomerulus DM1 --by-side --csv
+python3 -m fruitloops olf pathway PN KC --region MB --flywire --csv
 python3 -m fruitloops find il3LN6 --flywire --json
 python3 -m fruitloops partners il3LN6 --flywire --orn --csv
 python3 -m fruitloops partners il3LN6 --hemibrain --pn --csv
@@ -68,22 +72,22 @@ python3 -m fruitloops table comparison:matched_ln_class_similarity --contains LN
 
 ## Olfaction Cache
 
-Use `admin olfaction` for AL/LH/MB questions. Build once with setup from
-imported DuckDB bulk tables, then query offline:
+Use `olf` for AL/LH/MB questions. Build once with setup from imported DuckDB
+bulk tables, then query offline:
 
 ```bash
 python3 -m fruitloops setup
-python3 -m fruitloops admin olfaction neurons --region AL --class ORN --format csv
-python3 -m fruitloops admin olfaction pns --glomerulus DM1 --format csv
-python3 -m fruitloops admin olfaction orn-inputs --glomerulus DM1 --by-side --format csv
-python3 -m fruitloops admin olfaction edges --region LH --min-synapses 5 --format csv
+python3 -m fruitloops olf neurons --region AL --class ORN --format csv
+python3 -m fruitloops olf pns --glomerulus DM1 --format csv
+python3 -m fruitloops olf inputs --target-class PN --source-class ORN --glomerulus DM1 --by-side --format csv
+python3 -m fruitloops olf edges --region LH --min-synapses 5 --format csv
 ```
 
 For complete labels, cache annotations once from live APIs, then query offline:
 
 ```bash
-python3 -m fruitloops admin olfaction cache-annotations --dataset hemibrain
-python3 -m fruitloops admin olfaction cache-annotations --dataset flywire
+python3 -m fruitloops olf cache-annotations --dataset hemibrain
+python3 -m fruitloops olf cache-annotations --dataset flywire
 ```
 
 Expected source tables:

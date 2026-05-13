@@ -10,6 +10,11 @@
 - Added `fruitloops olf classes`, `glomerulus`, `pathway`, and `inputs`
   commands for broad olfactory circuit queries beyond LNs.
 
+### Changes
+
+- Updated README, agent guidance, and CLI examples to lead with broad
+  olfaction workflows before LN-specific table queries.
+
 ## 0.1.3 - 2026-05-13
 
 ### Features
