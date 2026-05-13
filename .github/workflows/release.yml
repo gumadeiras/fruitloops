@@ -57,6 +57,63 @@ jobs:
           files: dist/*
           generate_release_notes: true
 
+  homebrew:
+    needs: [github-release, pypi]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Check out fruitloops
+        uses: actions/checkout@v4
+        with:
+          path: fruitloops
+
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - name: Compute formula inputs
+        id: formula
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          sdist="dist/fruitloops-${version}.tar.gz"
+          if [[ ! -f "$sdist" ]]; then
+            echo "missing sdist: $sdist" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "sha256=$(sha256sum "$sdist" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - name: Check out Homebrew tap
+        uses: actions/checkout@v4
+        with:
+          repository: gumadeiras/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+
+      - name: Update fruitloops formula
+        run: |
+          python fruitloops/scripts/update_homebrew_formula.py \
+            --formula homebrew-tap/Formula/fruitloops.rb \
+            --version "${{ steps.formula.outputs.version }}" \
+            --sha256 "${{ steps.formula.outputs.sha256 }}"
+
+      - name: Commit and push formula
+        working-directory: homebrew-tap
+        run: |
+          if git diff --quiet; then
+            echo "Formula already up to date"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/fruitloops.rb
+          git commit -m "Update fruitloops to ${{ steps.formula.outputs.version }}"
+          git push
+
   pypi:
     needs: build
     runs-on: ubuntu-latest
