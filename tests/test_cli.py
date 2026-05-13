@@ -24,6 +24,26 @@ class CliTest(unittest.TestCase):
         self.assertIn("usage: fruitloops", output)
         self.assertIn("datasets", output)
 
+    def test_missing_required_arguments_print_command_help(self) -> None:
+        self.assertIn("usage: fruitloops schema", run_cli("schema"))
+        self.assertIn("--table", run_cli("schema"))
+
+        self.assertIn("usage: fruitloops ln", run_cli("ln"))
+        self.assertIn("name", run_cli("ln"))
+
+        self.assertIn("usage: fruitloops plot", run_cli("plot"))
+        self.assertIn("--csv", run_cli("plot"))
+
+    def test_missing_nested_commands_print_subcommand_help(self) -> None:
+        self.assertIn("usage: fruitloops live", run_cli("live"))
+        self.assertIn("hemibrain", run_cli("live"))
+
+        self.assertIn("usage: fruitloops live hemibrain", run_cli("live", "hemibrain"))
+        self.assertIn("connections", run_cli("live", "hemibrain"))
+
+        self.assertIn("usage: fruitloops bulk download", run_cli("bulk", "download"))
+        self.assertIn("--dataset", run_cli("bulk", "download"))
+
     def test_datasets_uses_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             data = Path(tmp)
@@ -339,7 +359,12 @@ class CliTest(unittest.TestCase):
 def run_cli(*args: str) -> str:
     output = StringIO()
     with redirect_stdout(output):
-        result = main(list(args))
+        try:
+            result = main(list(args))
+        except SystemExit as error:
+            if error.code != 0:
+                raise
+            result = 0
     if result != 0:
         raise AssertionError(f"CLI exited with {result}")
     return output.getvalue()

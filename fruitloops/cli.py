@@ -29,8 +29,25 @@ from .plotting import PlotSpec, render_plot
 FORMATS = ("table", "csv", "json", "jsonl")
 
 
+class HelpOnMissingArgsParser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:
+        if is_missing_argument_error(message):
+            self.print_help()
+            self.exit(0)
+        super().error(message)
+
+
+def is_missing_argument_error(message: str) -> bool:
+    return (
+        "the following arguments are required:" in message
+        or ("one of the arguments" in message and "is required" in message)
+        or "expected one argument" in message
+        or "expected at least one argument" in message
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
+    parser = HelpOnMissingArgsParser(
         prog="fruitloops",
         description="Query local connectome analysis CSVs.",
     )
