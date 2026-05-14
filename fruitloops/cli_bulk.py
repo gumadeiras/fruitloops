@@ -136,6 +136,7 @@ def cmd_bulk_setup(args: argparse.Namespace, data) -> int:
         store=args.store,
         datasets=unique_values(args.dataset),
         replace=args.replace,
+        skip_current=True,
     )
     emit_rows(rows, ["dataset", "action", "target", "status", "path", "store"], args.format)
     return 0

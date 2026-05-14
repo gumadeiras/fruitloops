@@ -54,7 +54,9 @@ fruitloops setup
 Setup prints numbered progress updates to stderr while keeping the final
 summary on stdout. The default output is a compact list; use `--csv` or
 `--json` when you need full file paths and DuckDB store locations. Use
-`--no-progress` for fully quiet pipeline runs.
+`--no-progress` for fully quiet pipeline runs. Re-running setup skips current
+downloads, imports, optimization, and derived olfaction tables when local
+source fingerprints still match the stored setup state.
 
 Run directly from the repository:
 

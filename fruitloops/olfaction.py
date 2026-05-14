@@ -1,9 +1,19 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from .bulk import DEFAULT_DUCKDB_PATH, require_duckdb, result_rows, safe_identifier
+from .bulk import (
+    DEFAULT_DUCKDB_PATH,
+    require_duckdb,
+    result_rows,
+    safe_identifier,
+    setup_state_matches,
+    table_fingerprint,
+    write_setup_state,
+)
 from .olfaction_labels import sql_classify, sql_glomerulus, sql_side
 
 
@@ -53,13 +63,22 @@ def build_olfaction_cache(
     datasets: list[str] | None = None,
     replace: bool = True,
     prefix: str = OLFACTION_PREFIX,
+    skip_current: bool = False,
 ) -> list[dict[str, str]]:
     duckdb = require_duckdb("olfaction build")
     selected = tuple(datasets or CONNECTION_SPECS.keys())
     prefix = safe_identifier(prefix)
     with duckdb.connect(str(store)) as connection:
+        stage_key = f"olfaction:{prefix}:{','.join(sorted(selected))}"
+        fingerprint = olfaction_source_fingerprint(connection, selected, prefix)
+        if skip_current and table_exists(connection, f"{prefix}_neurons") and setup_state_matches(
+            connection,
+            stage_key,
+            fingerprint,
+        ):
+            return table_counts(connection, prefix, store, [], status="current")
         if not replace and table_exists(connection, f"{prefix}_neurons"):
-            return table_counts(connection, prefix, store, [])
+            return table_counts(connection, prefix, store, [], status="existing")
         if replace:
             drop_olfaction_tables(connection, prefix)
         create_connection_table(connection, prefix)
@@ -83,6 +102,13 @@ def build_olfaction_cache(
         create_pathway_summary_table(connection, prefix)
         create_cell_type_summary_table(connection, prefix)
         create_indexes(connection, prefix)
+        if skip_current:
+            write_setup_state(
+                connection,
+                stage_key,
+                fingerprint,
+                table_row_count(connection, f"{prefix}_neurons"),
+            )
         return table_counts(connection, prefix, store, imported)
 
 
@@ -518,7 +544,13 @@ def missing_source_row(dataset: str, table: str, store: Path) -> dict[str, str]:
     }
 
 
-def table_counts(connection, prefix: str, store: Path, sources: list[dict[str, str]]) -> list[dict[str, str]]:
+def table_counts(
+    connection,
+    prefix: str,
+    store: Path,
+    sources: list[dict[str, str]],
+    status: str = "built",
+) -> list[dict[str, str]]:
     rows = list(sources)
     for table in olfaction_table_names(prefix):
         if not table_exists(connection, table):
@@ -529,11 +561,53 @@ def table_counts(connection, prefix: str, store: Path, sources: list[dict[str, s
                 "dataset": "all",
                 "table": table,
                 "rows": str(count),
-                "status": "built",
+                "status": status,
                 "store": str(store),
             }
         )
     return rows
+
+
+def olfaction_source_fingerprint(connection, selected: tuple[str, ...], prefix: str) -> str:
+    payload = {
+        "prefix": prefix,
+        "datasets": list(selected),
+        "connection_tables": [],
+        "annotation_tables": [],
+    }
+    for dataset in selected:
+        spec = CONNECTION_SPECS[dataset]
+        payload["connection_tables"].append(
+            {
+                "dataset": dataset,
+                "table": spec.table,
+                "fingerprint": table_fingerprint(connection, spec.table),
+            }
+        )
+    for table in olfaction_annotation_sources(connection):
+        payload["annotation_tables"].append(
+            {
+                "table": table,
+                "fingerprint": table_fingerprint(connection, table),
+            }
+        )
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def olfaction_annotation_sources(connection) -> list[str]:
+    candidates = [
+        HEMIBRAIN_OLFACTION_ANNOTATION_TABLE,
+        HEMIBRAIN_NEURON_TABLE,
+        FLYWIRE_HIERARCHICAL_TABLE,
+        FLYWIRE_NEURON_INFO_TABLE,
+        FLYWIRE_PROOFREAD_NEURON_TABLE,
+    ]
+    return [table for table in candidates if table_exists(connection, table)]
+
+
+def table_row_count(connection, table: str) -> str:
+    return str(connection.execute(f"SELECT count(*) FROM {safe_identifier(table)}").fetchone()[0])
 
 
 def olfaction_tables(store: Path = DEFAULT_DUCKDB_PATH, prefix: str = OLFACTION_PREFIX) -> list[dict[str, str]]:

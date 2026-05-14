@@ -65,6 +65,7 @@ def cmd_setup(args: argparse.Namespace, data: FruitloopsData | None) -> int:
                 store=args.store,
                 datasets=[dataset],
                 replace=args.replace,
+                skip_current=True,
             )
         )
     rows.extend(normalize_bulk_setup_rows(bulk_rows))
@@ -73,6 +74,7 @@ def cmd_setup(args: argparse.Namespace, data: FruitloopsData | None) -> int:
         store=args.store,
         datasets=datasets,
         replace=args.replace,
+        skip_current=True,
     )
     rows.extend(normalize_olfaction_setup_rows(olfaction_rows, action="olfaction-build"))
     if args.cache_annotations:
@@ -89,6 +91,7 @@ def cmd_setup(args: argparse.Namespace, data: FruitloopsData | None) -> int:
             store=args.store,
             datasets=datasets,
             replace=True,
+            skip_current=True,
         )
         rows.extend(normalize_olfaction_setup_rows(rebuilt_rows, action="olfaction-rebuild"))
     progress.finish("write setup summary")

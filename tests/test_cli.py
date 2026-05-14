@@ -15,13 +15,17 @@ from fruitloops.bulk import (
     DEFAULT_DUCKDB_PATH,
     archive_stem,
     default_bulk_dir,
+    import_to_duckdb,
     list_sources,
     safe_identifier,
+    setup_flywire_bulk,
+    table_summary,
     where_clause,
 )
 from fruitloops.cache import DEFAULT_CACHE_DIR, get_or_fetch, list_cache
 from fruitloops.env import load_env_file
 from fruitloops.live import parse_in_filters, parse_ints
+from fruitloops.olfaction import build_olfaction_cache
 from fruitloops.olfaction_labels import classify_name
 from fruitloops.paths import default_data_dir, default_duckdb_path, default_live_cache_dir
 from fruitloops.plotting import PlotSpec
@@ -102,6 +106,8 @@ class CliTest(unittest.TestCase):
         self.assertTrue(cache_exists)
         bulk_setup.assert_called_once()
         olfaction_build.assert_called_once()
+        self.assertTrue(bulk_setup.call_args.kwargs["skip_current"])
+        self.assertTrue(olfaction_build.call_args.kwargs["skip_current"])
         self.assertIn("fruitloops setup [1/3] prepare live cache", progress)
         self.assertIn("fruitloops setup [2/3] flywire: download/import bulk connectivity", progress)
         self.assertIn("fruitloops setup [3/3] build derived olfaction tables", progress)
@@ -512,16 +518,26 @@ class CliTest(unittest.TestCase):
         self.assertIn(("hemibrain", "neo4j-inputs"), keys)
 
     def test_bulk_setup_wraps_download_import_and_optimize(self) -> None:
-        with patch("fruitloops.bulk.download_source", return_value=Path("/tmp/proofread.feather")):
-            with patch(
-                "fruitloops.bulk.import_to_duckdb",
-                return_value={"table": "flywire_proofread_connections", "rows": "7"},
-            ):
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("fruitloops.bulk.download_source", return_value=Path("/tmp/proofread.feather")):
                 with patch(
-                    "fruitloops.bulk.optimize_connection_table",
-                    return_value=[{"action": "analyze", "name": "flywire_proofread_connections", "column": ""}],
+                    "fruitloops.bulk.import_to_duckdb",
+                    return_value={"table": "flywire_proofread_connections", "rows": "7"},
                 ):
-                    output = run_cli("bulk", "setup", "--dataset", "flywire", "--format", "csv")
+                    with patch(
+                        "fruitloops.bulk.optimize_connection_table",
+                        return_value=[{"action": "analyze", "name": "flywire_proofread_connections", "column": ""}],
+                    ):
+                        output = run_cli(
+                            "bulk",
+                            "--bulk-dir",
+                            tmp,
+                            "setup",
+                            "--dataset",
+                            "flywire",
+                            "--format",
+                            "csv",
+                        )
 
         self.assertIn("flywire,download,proofread-connections,ok,/tmp/proofread.feather", output)
         self.assertIn("flywire,import,flywire_proofread_connections,7,/tmp/proofread.feather", output)
@@ -537,6 +553,36 @@ class CliTest(unittest.TestCase):
             archive_stem(Path("exported-traced-adjacencies-v1.2.tar.gz")),
             "exported-traced-adjacencies-v1.2",
         )
+
+    @unittest.skipIf(importlib.util.find_spec("duckdb") is None, "duckdb not installed")
+    def test_bulk_setup_skips_current_import_and_optimize(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Path(tmp) / "fruitloops.duckdb"
+            fixture = Path("tests/fixtures/bulk/flywire_olf_connections.csv").resolve()
+            with patch("fruitloops.bulk.download_source", return_value=fixture):
+                first = setup_flywire_bulk(
+                    Path(tmp) / "bulk",
+                    store,
+                    replace=True,
+                    skip_current=True,
+                )
+                second = setup_flywire_bulk(
+                    Path(tmp) / "bulk",
+                    store,
+                    replace=True,
+                    skip_current=True,
+                )
+
+        self.assertTrue(
+            any(row["action"] == "import" and row["status"] == "4" for row in first)
+        )
+        self.assertTrue(
+            any(row["action"] == "import" and row["status"] == "current:4" for row in second)
+        )
+        self.assertTrue(
+            any(row["action"] == "optimize" and row["status"] == "current" for row in second)
+        )
+        self.assertNotIn("_fruitloops_setup_state", {row["table"] for row in table_summary(store)})
 
     @unittest.skipIf(importlib.util.find_spec("duckdb") is None, "duckdb not installed")
     def test_bulk_import_and_partner_commands_with_fixture(self) -> None:
@@ -756,6 +802,37 @@ class CliTest(unittest.TestCase):
         self.assertIn("flywire,ORN,PN,DM1,DM1,AL,R,ipsi,ipsi,ipsi,1,1,12", pathway_output)
         self.assertIn("flywire,2001,DM1_lPN_R,PN,DM1,ORN,DM1,1,12,R,R,R,ipsi,ipsi,ipsi", inputs_output)
         self.assertIn("flywire,2001,DM1_lPN_R,PN,DM1,KC,,1,7,R,R,R,ipsi,ipsi,ipsi", outputs_output)
+
+    @unittest.skipIf(importlib.util.find_spec("duckdb") is None, "duckdb not installed")
+    def test_olfaction_build_skips_current_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Path(tmp) / "fixture.duckdb"
+            for path, table in [
+                ("tests/fixtures/bulk/flywire_olf_connections.csv", "flywire_proofread_connections"),
+                ("tests/fixtures/bulk/flywire_hierarchical.csv", "flywire_hierarchical_neuron_annotations"),
+                ("tests/fixtures/bulk/flywire_neuron_info.csv", "flywire_neuron_information_v2"),
+            ]:
+                import_to_duckdb(Path(path), table, store=store, replace=True)
+
+            first = build_olfaction_cache(
+                store=store,
+                datasets=["flywire"],
+                replace=True,
+                skip_current=True,
+            )
+            second = build_olfaction_cache(
+                store=store,
+                datasets=["flywire"],
+                replace=True,
+                skip_current=True,
+            )
+
+        self.assertTrue(
+            any(row["table"] == "olf_neurons" and row["status"] == "built" for row in first)
+        )
+        self.assertTrue(
+            any(row["table"] == "olf_neurons" and row["status"] == "current" for row in second)
+        )
 
 
 def run_cli(*args: str) -> str:

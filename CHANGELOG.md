@@ -6,6 +6,8 @@
 
 - Changed default `fruitloops setup` output to a compact list; CSV and JSON
   still include full paths.
+- Added setup freshness checks so repeated setup runs skip current imports,
+  optimization, extraction, and derived olfaction table rebuilds.
 
 ## 0.1.5 - 2026-05-13
 

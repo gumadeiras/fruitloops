@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import urllib.request
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .paths import default_bulk_dir, default_duckdb_path
 
 DEFAULT_BULK_DIR = default_bulk_dir()
 DEFAULT_DUCKDB_PATH = default_duckdb_path()
+SETUP_STATE_TABLE = "_fruitloops_setup_state"
 PRE_COLUMNS = (
     "pre_pt_root_id",
     "pre_root_id",
@@ -129,66 +132,117 @@ def setup_practical_bulk(
     store: Path = DEFAULT_DUCKDB_PATH,
     datasets: list[str] | None = None,
     replace: bool = True,
+    skip_current: bool = False,
 ) -> list[dict[str, str]]:
     selected = datasets or ["flywire", "hemibrain"]
     rows = []
     for dataset in selected:
         if dataset == "flywire":
-            rows.extend(setup_flywire_bulk(bulk_dir, store, replace))
+            rows.extend(setup_flywire_bulk(bulk_dir, store, replace, skip_current=skip_current))
         elif dataset == "hemibrain":
-            rows.extend(setup_hemibrain_bulk(bulk_dir, store, replace))
+            rows.extend(setup_hemibrain_bulk(bulk_dir, store, replace, skip_current=skip_current))
     return rows
 
 
-def setup_flywire_bulk(bulk_dir: Path, store: Path, replace: bool) -> list[dict[str, str]]:
+def setup_flywire_bulk(
+    bulk_dir: Path,
+    store: Path,
+    replace: bool,
+    *,
+    skip_current: bool = False,
+) -> list[dict[str, str]]:
     source = resolve_source("flywire", "proofread-connections")
     rows = []
+    expected_path = source_path(source, bulk_dir / "raw")
+    download_was_current = expected_path.exists()
     path = download_source(
         dataset=source.dataset,
         kind=source.kind,
         output_dir=bulk_dir / "raw",
     )
-    rows.append(setup_row(source.dataset, "download", source.kind, "ok", path, store))
+    rows.append(setup_row(source.dataset, "download", source.kind, "current" if download_was_current else "ok", path, store))
     imported = import_to_duckdb(
         path=path,
         table_name=source.table_name,
         store=store,
         replace=replace,
+        skip_current=skip_current,
     )
-    rows.append(setup_row(source.dataset, "import", imported["table"], imported["rows"], path, store))
-    rows.extend(setup_optimize_rows(source.dataset, source.table_name, "flywire", store))
+    rows.append(setup_row(source.dataset, "import", imported["table"], setup_stage_status(imported), path, store))
+    rows.extend(setup_optimize_rows(source.dataset, source.table_name, "flywire", store, skip_current=skip_current))
     return rows
 
 
-def setup_hemibrain_bulk(bulk_dir: Path, store: Path, replace: bool) -> list[dict[str, str]]:
+def setup_hemibrain_bulk(
+    bulk_dir: Path,
+    store: Path,
+    replace: bool,
+    *,
+    skip_current: bool = False,
+) -> list[dict[str, str]]:
     source = resolve_source("hemibrain", "compact-adjacencies")
     rows = []
+    expected_archive = source_path(source, bulk_dir / "raw")
+    download_was_current = expected_archive.exists()
     archive = download_source(
         dataset=source.dataset,
         kind=source.kind,
         output_dir=bulk_dir / "raw",
     )
-    rows.append(setup_row(source.dataset, "download", source.kind, "ok", archive, store))
+    rows.append(setup_row(source.dataset, "download", source.kind, "current" if download_was_current else "ok", archive, store))
+    extract_key = f"extract:{archive_stem(archive)}"
+    extract_fingerprint = file_fingerprint(archive)
+    extract_current = setup_state_is_current(store, extract_key, extract_fingerprint) if skip_current else False
     extracted = extract_archive_csvs(
         archive,
         output_dir=bulk_dir / "extracted" / archive_stem(archive),
+        force=not extract_current,
     )
-    rows.append(setup_row(source.dataset, "extract", archive_stem(archive), str(len(extracted)), archive, store))
+    if skip_current and extracted:
+        write_setup_state_for_store(
+            store,
+            extract_key,
+            extract_fingerprint,
+            str(len(extracted)),
+        )
+    rows.append(
+        setup_row(
+            source.dataset,
+            "extract",
+            archive_stem(archive),
+            f"current:{len(extracted)}" if extract_current else str(len(extracted)),
+            archive,
+            store,
+        )
+    )
     paths = {path.name: path for path in extracted}
     for filename, table in HEMIBRAIN_COMPACT_IMPORTS.items():
         try:
             path = paths[filename]
         except KeyError as exc:
             raise FileNotFoundError(f"missing {filename} in {archive}") from exc
-        imported = import_to_duckdb(path=path, table_name=table, store=store, replace=replace)
-        rows.append(setup_row(source.dataset, "import", imported["table"], imported["rows"], path, store))
-    rows.extend(setup_optimize_rows(source.dataset, source.table_name, "hemibrain", store))
+        imported = import_to_duckdb(
+            path=path,
+            table_name=table,
+            store=store,
+            replace=replace,
+            skip_current=skip_current,
+        )
+        rows.append(setup_row(source.dataset, "import", imported["table"], setup_stage_status(imported), path, store))
+    rows.extend(setup_optimize_rows(source.dataset, source.table_name, "hemibrain", store, skip_current=skip_current))
     return rows
 
 
-def setup_optimize_rows(dataset: str, table: str, prefix: str, store: Path) -> list[dict[str, str]]:
+def setup_optimize_rows(
+    dataset: str,
+    table: str,
+    prefix: str,
+    store: Path,
+    *,
+    skip_current: bool = False,
+) -> list[dict[str, str]]:
     rows = []
-    for row in optimize_connection_table(store, table, prefix=prefix):
+    for row in optimize_connection_table(store, table, prefix=prefix, skip_current=skip_current):
         rows.append(
             setup_row(
                 dataset,
@@ -200,6 +254,14 @@ def setup_optimize_rows(dataset: str, table: str, prefix: str, store: Path) -> l
             )
         )
     return rows
+
+
+def setup_stage_status(row: dict[str, str]) -> str:
+    if row.get("status") == "current":
+        return f"current:{row.get('rows', '')}"
+    if row.get("status") == "existing":
+        return f"existing:{row.get('rows', '')}"
+    return row.get("rows", "")
 
 
 def setup_row(
@@ -236,7 +298,7 @@ def download_source(
 ) -> Path:
     source = resolve_source(dataset, kind)
     output_dir.mkdir(parents=True, exist_ok=True)
-    path = output_dir / source.dataset / source.filename
+    path = source_path(source, output_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists() and not force:
         return path
@@ -246,6 +308,10 @@ def download_source(
     tmp_path.replace(path)
     write_download_metadata(path, source)
     return path
+
+
+def source_path(source: BulkSource, output_dir: Path) -> Path:
+    return output_dir / source.dataset / source.filename
 
 
 def write_download_metadata(path: Path, source: BulkSource) -> None:
@@ -261,11 +327,32 @@ def import_to_duckdb(
     table_name: str,
     store: Path = DEFAULT_DUCKDB_PATH,
     replace: bool = False,
+    skip_current: bool = False,
 ) -> dict[str, str]:
     duckdb = require_duckdb("import/query")
     store.parent.mkdir(parents=True, exist_ok=True)
     table_name = safe_identifier(table_name)
+    stage_key = f"import:{table_name}"
+    fingerprint = file_fingerprint(path)
     with duckdb.connect(str(store)) as connection:
+        if skip_current and table_exists(connection, table_name) and setup_state_matches(
+            connection,
+            stage_key,
+            fingerprint,
+        ):
+            return {
+                "store": str(store),
+                "table": table_name,
+                "rows": table_row_count(connection, table_name),
+                "status": "current",
+            }
+        if table_exists(connection, table_name) and not replace:
+            return {
+                "store": str(store),
+                "table": table_name,
+                "rows": table_row_count(connection, table_name),
+                "status": "existing",
+            }
         if replace:
             connection.execute(f"DROP TABLE IF EXISTS {table_name}")
         if path.suffix == ".csv":
@@ -283,7 +370,9 @@ def import_to_duckdb(
         else:
             raise ValueError(f"unsupported import format: {path.suffix}")
         rows = connection.execute(f"SELECT count(*) FROM {table_name}").fetchone()[0]
-    return {"store": str(store), "table": table_name, "rows": str(rows)}
+        if skip_current:
+            write_setup_state(connection, stage_key, fingerprint, str(rows))
+    return {"store": str(store), "table": table_name, "rows": str(rows), "status": "imported"}
 
 
 def import_feather(connection, path: Path, table_name: str) -> None:
@@ -351,8 +440,10 @@ def table_summary(store: Path) -> list[dict[str, str]]:
             SELECT table_name
             FROM information_schema.tables
             WHERE table_schema = 'main'
+              AND table_name <> ?
             ORDER BY table_name
-            """
+            """,
+            [SETUP_STATE_TABLE],
         ).fetchall()
         out = []
         for (table_name,) in rows:
@@ -361,6 +452,119 @@ def table_summary(store: Path) -> list[dict[str, str]]:
             ).fetchone()[0]
             out.append({"table": table_name, "rows": str(count), "store": str(store)})
         return out
+
+
+def ensure_setup_state(connection) -> None:
+    connection.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {SETUP_STATE_TABLE} (
+            stage_key VARCHAR PRIMARY KEY,
+            source_fingerprint VARCHAR,
+            rows VARCHAR,
+            updated_at VARCHAR
+        )
+        """
+    )
+
+
+def setup_state_matches(connection, stage_key: str, source_fingerprint: str) -> bool:
+    ensure_setup_state(connection)
+    row = connection.execute(
+        f"""
+        SELECT source_fingerprint
+        FROM {SETUP_STATE_TABLE}
+        WHERE stage_key = ?
+        """,
+        [stage_key],
+    ).fetchone()
+    return bool(row and row[0] == source_fingerprint)
+
+
+def write_setup_state(
+    connection,
+    stage_key: str,
+    source_fingerprint: str,
+    rows: str,
+) -> None:
+    ensure_setup_state(connection)
+    connection.execute(
+        f"""
+        INSERT OR REPLACE INTO {SETUP_STATE_TABLE}
+        VALUES (?, ?, ?, ?)
+        """,
+        [
+            stage_key,
+            source_fingerprint,
+            str(rows),
+            datetime.now(timezone.utc).isoformat(),
+        ],
+    )
+
+
+def setup_state_is_current(store: Path, stage_key: str, source_fingerprint: str) -> bool:
+    duckdb = require_duckdb("setup state")
+    store.parent.mkdir(parents=True, exist_ok=True)
+    with duckdb.connect(str(store)) as connection:
+        return setup_state_matches(connection, stage_key, source_fingerprint)
+
+
+def write_setup_state_for_store(
+    store: Path,
+    stage_key: str,
+    source_fingerprint: str,
+    rows: str,
+) -> None:
+    duckdb = require_duckdb("setup state")
+    store.parent.mkdir(parents=True, exist_ok=True)
+    with duckdb.connect(str(store)) as connection:
+        write_setup_state(connection, stage_key, source_fingerprint, rows)
+
+
+def file_fingerprint(path: Path) -> str:
+    stat = path.stat()
+    payload = {
+        "path": str(path.resolve()),
+        "size": stat.st_size,
+        "mtime_ns": stat.st_mtime_ns,
+    }
+    return sha256_json(payload)
+
+
+def table_exists(connection, table: str) -> bool:
+    table = safe_identifier(table)
+    row = connection.execute(
+        """
+        SELECT count(*)
+        FROM information_schema.tables
+        WHERE table_schema = 'main'
+          AND table_name = ?
+        """,
+        [table],
+    ).fetchone()
+    return bool(row and row[0])
+
+
+def table_row_count(connection, table: str) -> str:
+    return str(connection.execute(f"SELECT count(*) FROM {safe_identifier(table)}").fetchone()[0])
+
+
+def table_fingerprint(connection, table: str) -> str:
+    table = safe_identifier(table)
+    if not table_exists(connection, table):
+        return sha256_json({"table": table, "missing": True})
+    columns = connection.execute(f"DESCRIBE {table}").fetchall()
+    return sha256_json(
+        {
+            "table": table,
+            "rows": table_row_count(connection, table),
+            "columns": [[str(value) for value in row] for row in columns],
+        }
+    )
+
+
+def sha256_json(payload: dict | list) -> str:
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def connection_columns(store: Path, table: str) -> dict[str, str]:
@@ -475,6 +679,7 @@ def optimize_connection_table(
     store: Path,
     table: str,
     prefix: str | None = None,
+    skip_current: bool = False,
 ) -> list[dict[str, str]]:
     duckdb = require_duckdb("optimize")
     table = safe_identifier(table)
@@ -488,6 +693,10 @@ def optimize_connection_table(
     }
     actions = []
     with duckdb.connect(str(store)) as connection:
+        stage_key = f"optimize:{table}"
+        fingerprint = table_fingerprint(connection, table)
+        if skip_current and setup_state_matches(connection, stage_key, fingerprint):
+            return [{"action": "current", "name": table, "column": "", "store": str(store)}]
         for role, column in index_columns.items():
             if not column:
                 continue
@@ -506,6 +715,8 @@ def optimize_connection_table(
             )
         connection.execute(f"ANALYZE {table}")
         actions.append({"action": "analyze", "name": table, "column": "", "store": str(store)})
+        if skip_current:
+            write_setup_state(connection, stage_key, fingerprint, str(len(actions)))
     return actions
 
 
