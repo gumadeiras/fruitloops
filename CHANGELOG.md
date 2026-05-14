@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.5 - 2026-05-13
+
 ### Changes
 
 - Added stderr progress updates to `fruitloops setup`, with `--no-progress`
