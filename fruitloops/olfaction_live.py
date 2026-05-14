@@ -33,9 +33,22 @@ def cache_olfaction_annotations(
             build_olfaction_cache(store=store, datasets=list(selected), replace=True, prefix=prefix)
         rows = []
         if "hemibrain" in selected:
-            rows.append(cache_hemibrain_annotations(connection, store, chunk_size, prefix))
+            try:
+                rows.append(cache_hemibrain_annotations(connection, store, chunk_size, prefix))
+            except (Exception, SystemExit) as exc:
+                rows.append(
+                    annotation_error_row(
+                        "hemibrain",
+                        HEMIBRAIN_OLFACTION_ANNOTATION_TABLE,
+                        exc,
+                        store,
+                    )
+                )
         if "flywire" in selected:
-            rows.extend(cache_flywire_annotations(connection, store, chunk_size, prefix))
+            try:
+                rows.extend(cache_flywire_annotations(connection, store, chunk_size, prefix))
+            except (Exception, SystemExit) as exc:
+                rows.append(annotation_error_row("flywire", "flywire_annotations", exc, store))
     if rebuild:
         rows.extend(build_olfaction_cache(store=store, datasets=None, replace=True, prefix=prefix))
     return rows
@@ -192,6 +205,27 @@ def annotation_row(dataset: str, table: str, rows: int, store: Path) -> dict[str
         "status": "cached",
         "store": str(store),
     }
+
+
+def annotation_error_row(dataset: str, table: str, error: BaseException, store: Path) -> dict[str, str]:
+    return {
+        "dataset": dataset,
+        "table": table,
+        "rows": error_message(error),
+        "status": "error",
+        "store": str(store),
+    }
+
+
+def error_message(error: BaseException) -> str:
+    if isinstance(error, SystemExit):
+        message = str(error.code)
+    else:
+        message = str(error)
+    message = " ".join((message or error.__class__.__name__).split())
+    if len(message) > 500:
+        return f"{message[:497]}..."
+    return message
 
 
 def chunks(values: list[str], size: int) -> list[list[str]]:

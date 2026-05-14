@@ -3,3 +3,8 @@ pre_pt_root_id,post_pt_root_id,neuropil,syn_count
 1002,2001,AL_L,5
 3001,2001,LH_R,3
 2001,4001,MB_CA_R,7
+2001,5001,LH_R,11
+2001,6001,MB_VL_R,6
+2001,7001,MB_PED_R,5
+2001,8001,MB_CA_R,4
+2001,6001,CAN_R,17

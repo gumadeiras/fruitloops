@@ -27,7 +27,7 @@ FLYWIRE_CONNECTION_TABLE = "flywire_proofread_connections"
 FLYWIRE_HIERARCHICAL_TABLE = "flywire_hierarchical_neuron_annotations"
 FLYWIRE_NEURON_INFO_TABLE = "flywire_neuron_information_v2"
 FLYWIRE_PROOFREAD_NEURON_TABLE = "flywire_proofread_neurons"
-OLFACTION_SCHEMA_VERSION = "2"
+OLFACTION_SCHEMA_VERSION = "4"
 
 
 @dataclass(frozen=True)
@@ -114,6 +114,26 @@ def build_olfaction_cache(
         return table_counts(connection, prefix, store, imported)
 
 
+def roi_region_sql(expression: str) -> str:
+    roi = f"CAST({expression} AS VARCHAR)"
+    upper_roi = f"upper({roi})"
+    return f"""
+    CASE
+        WHEN {roi} LIKE 'AL%' THEN 'AL'
+        WHEN {upper_roi} LIKE 'LH%' THEN 'LH'
+        WHEN {upper_roi} LIKE 'MB%'
+          OR {roi} LIKE 'CA(%'
+          OR {roi} LIKE 'PED(%'
+          OR {roi} LIKE 'aL(%'
+          OR {roi} LIKE 'a''L(%'
+          OR {roi} LIKE 'bL(%'
+          OR {roi} LIKE 'b''L(%'
+          OR {roi} LIKE 'gL(%' THEN 'MB'
+        ELSE ''
+    END
+    """
+
+
 def drop_olfaction_tables(connection, prefix: str) -> None:
     for table in olfaction_table_names(prefix):
         connection.execute(f"DROP TABLE IF EXISTS {table}")
@@ -171,6 +191,8 @@ def create_provenance_table(connection, prefix: str) -> None:
 
 
 def insert_connection_rows(connection, prefix: str, spec: ConnectionSpec) -> None:
+    roi_column = safe_identifier(spec.roi_column)
+    region_sql = roi_region_sql(roi_column)
     connection.execute(
         f"""
         INSERT INTO {prefix}_edges_by_neuropil
@@ -178,32 +200,23 @@ def insert_connection_rows(connection, prefix: str, spec: ConnectionSpec) -> Non
             ? AS dataset,
             CAST({safe_identifier(spec.pre_column)} AS VARCHAR) AS pre_id,
             CAST({safe_identifier(spec.post_column)} AS VARCHAR) AS post_id,
-            CAST({safe_identifier(spec.roi_column)} AS VARCHAR) AS neuropil,
+            CAST({roi_column} AS VARCHAR) AS neuropil,
+            {region_sql} AS region,
             CASE
-                WHEN upper(CAST({safe_identifier(spec.roi_column)} AS VARCHAR)) LIKE 'AL%' THEN 'AL'
-                WHEN upper(CAST({safe_identifier(spec.roi_column)} AS VARCHAR)) LIKE 'LH%' THEN 'LH'
-                WHEN upper(CAST({safe_identifier(spec.roi_column)} AS VARCHAR)) LIKE 'MB%' THEN 'MB'
-                ELSE ''
-            END AS region,
-            CASE
-                WHEN upper(CAST({safe_identifier(spec.roi_column)} AS VARCHAR)) LIKE '%(R)%'
-                  OR upper(CAST({safe_identifier(spec.roi_column)} AS VARCHAR)) LIKE '%_R'
-                  OR upper(CAST({safe_identifier(spec.roi_column)} AS VARCHAR)) LIKE '%_R_%'
+                WHEN upper(CAST({roi_column} AS VARCHAR)) LIKE '%(R)%'
+                  OR upper(CAST({roi_column} AS VARCHAR)) LIKE '%_R'
+                  OR upper(CAST({roi_column} AS VARCHAR)) LIKE '%_R_%'
                 THEN 'R'
-                WHEN upper(CAST({safe_identifier(spec.roi_column)} AS VARCHAR)) LIKE '%(L)%'
-                  OR upper(CAST({safe_identifier(spec.roi_column)} AS VARCHAR)) LIKE '%_L'
-                  OR upper(CAST({safe_identifier(spec.roi_column)} AS VARCHAR)) LIKE '%_L_%'
+                WHEN upper(CAST({roi_column} AS VARCHAR)) LIKE '%(L)%'
+                  OR upper(CAST({roi_column} AS VARCHAR)) LIKE '%_L'
+                  OR upper(CAST({roi_column} AS VARCHAR)) LIKE '%_L_%'
                 THEN 'L'
                 ELSE ''
             END AS hemisphere,
             CAST({safe_identifier(spec.weight_column)} AS BIGINT) AS synapses,
             ? AS source_table
         FROM {safe_identifier(spec.table)}
-        WHERE (
-            upper(CAST({safe_identifier(spec.roi_column)} AS VARCHAR)) LIKE 'AL%'
-            OR upper(CAST({safe_identifier(spec.roi_column)} AS VARCHAR)) LIKE 'LH%'
-            OR upper(CAST({safe_identifier(spec.roi_column)} AS VARCHAR)) LIKE 'MB%'
-        )
+        WHERE ({region_sql}) <> ''
         AND CAST({safe_identifier(spec.weight_column)} AS BIGINT) > 0
         """,
         [spec.dataset, spec.table],

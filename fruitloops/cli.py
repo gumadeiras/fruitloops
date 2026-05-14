@@ -5,7 +5,7 @@ import csv
 from pathlib import Path
 
 from . import __version__
-from .cache import DEFAULT_CACHE_DIR, get_or_fetch
+from .cache import DEFAULT_CACHE_DIR, get_or_fetch, list_cache
 from .cli_helpers import (
     add_dataset_arg,
     add_format_arg,

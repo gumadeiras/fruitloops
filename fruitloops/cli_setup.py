@@ -11,7 +11,7 @@ from .cli_helpers import add_dataset_filter_arg, add_format_arg, unique_values
 from .data import FruitloopsData
 from .formatting import emit_rows
 from .olfaction import build_olfaction_cache
-from .olfaction_live import cache_olfaction_annotations
+from .olfaction_live import annotation_error_row, cache_olfaction_annotations
 
 
 def add_setup_parser(subparsers) -> None:
@@ -79,13 +79,18 @@ def cmd_setup(args: argparse.Namespace, data: FruitloopsData | None) -> int:
     rows.extend(normalize_olfaction_setup_rows(olfaction_rows, action="olfaction-build"))
     if args.cache_annotations:
         progress.step("cache live olfaction annotations")
-        annotation_rows = cache_olfaction_annotations(
-            store=args.store,
-            datasets=datasets,
-            chunk_size=args.chunk_size,
-            rebuild=False,
-        )
-        rows.extend(normalize_olfaction_setup_rows(annotation_rows, action="annotation-cache"))
+        try:
+            annotation_rows = cache_olfaction_annotations(
+                store=args.store,
+                datasets=datasets,
+                chunk_size=args.chunk_size,
+                rebuild=False,
+            )
+        except (Exception, SystemExit) as exc:
+            annotation_rows = [annotation_error_row("all", "live_annotations", exc, args.store)]
+        annotation_errors = [row for row in annotation_rows if row.get("status") == "error"]
+        annotation_successes = [row for row in annotation_rows if row.get("status") != "error"]
+        rows.extend(normalize_olfaction_setup_rows(annotation_successes, action="annotation-cache"))
         progress.step("rebuild derived olfaction tables with annotations")
         rebuilt_rows = build_olfaction_cache(
             store=args.store,
@@ -94,6 +99,7 @@ def cmd_setup(args: argparse.Namespace, data: FruitloopsData | None) -> int:
             skip_current=True,
         )
         rows.extend(normalize_olfaction_setup_rows(rebuilt_rows, action="olfaction-rebuild"))
+        rows.extend(normalize_olfaction_setup_rows(annotation_errors, action="annotation-cache"))
     progress.finish("write setup summary")
     emit_setup_rows(rows, args.format)
     return 0

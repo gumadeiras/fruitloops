@@ -221,7 +221,7 @@ Example olfaction queries:
 fruitloops olf neurons --dataset flywire --region AL --class ORN --format csv
 fruitloops olf classes --dataset flywire --region AL --format csv
 fruitloops olf glomerulus DM1 --dataset flywire --format csv
-fruitloops olf inputs --dataset hemibrain --target-class PN --source-class ORN --glomerulus DM1 --by-side --format csv
+fruitloops olf inputs --dataset hemibrain --target-class PN --source-class ORN --glomerulus DM3 --by-side --format csv
 fruitloops olf outputs --dataset flywire --source-class PN --target-class KC --region MB --format csv
 fruitloops olf pathway PN KC --dataset flywire --region MB --format csv
 fruitloops olf edges --dataset flywire --region LH --min-synapses 5 --format csv

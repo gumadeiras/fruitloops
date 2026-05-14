@@ -9,3 +9,10 @@ pt_root_id,classification_system,cell_type
 3001,cell_class,LN
 4001,cell_type,KCg_R
 4001,cell_class,KC
+5001,cell_type,LHAV4a1_b
+6001,cell_type,MBON01_R
+6001,cell_class,MBON
+7001,cell_type,PAM01_R
+7001,cell_class,DAN
+8001,cell_type,APL_R
+8001,cell_class,APL

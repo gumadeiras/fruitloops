@@ -223,6 +223,123 @@ class CliTest(unittest.TestCase):
         self.assertIn("flywire,annotation-cache,flywire_neurons,cached:9", output)
         self.assertIn("flywire,olfaction-rebuild,olf_neurons,built:6", output)
 
+    def test_setup_reports_annotation_errors_after_rebuild(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_dir = Path(tmp) / "cache"
+            store = Path(tmp) / "fruitloops.duckdb"
+            with patch("fruitloops.cli_setup.setup_practical_bulk", return_value=[]):
+                with patch(
+                    "fruitloops.cli_setup.build_olfaction_cache",
+                    side_effect=[
+                        [
+                            {
+                                "dataset": "flywire",
+                                "table": "olf_neurons",
+                                "rows": "5",
+                                "status": "built",
+                                "store": str(store),
+                            }
+                        ],
+                        [
+                            {
+                                "dataset": "flywire",
+                                "table": "olf_neurons",
+                                "rows": "6",
+                                "status": "built",
+                                "store": str(store),
+                            }
+                        ],
+                    ],
+                ):
+                    with patch(
+                        "fruitloops.cli_setup.cache_olfaction_annotations",
+                        return_value=[
+                            {
+                                "dataset": "flywire",
+                                "table": "flywire_neurons",
+                                "rows": "9",
+                                "status": "cached",
+                                "store": str(store),
+                            },
+                            {
+                                "dataset": "hemibrain",
+                                "table": "hemibrain_olfaction_neuron_annotations",
+                                "rows": "503 Service Unavailable",
+                                "status": "error",
+                                "store": str(store),
+                            },
+                        ],
+                    ):
+                        output = run_cli(
+                            "setup",
+                            "--flywire",
+                            "--no-progress",
+                            "--cache-annotations",
+                            "--cache-dir",
+                            str(cache_dir),
+                            "--store",
+                            str(store),
+                            "--csv",
+                        )
+
+        self.assertIn("flywire,annotation-cache,flywire_neurons,cached:9", output)
+        self.assertIn("flywire,olfaction-rebuild,olf_neurons,built:6", output)
+        self.assertIn(
+            "hemibrain,annotation-cache,hemibrain_olfaction_neuron_annotations,error:503 Service Unavailable",
+            output,
+        )
+        self.assertLess(
+            output.index("flywire,olfaction-rebuild,olf_neurons,built:6"),
+            output.index("hemibrain,annotation-cache,hemibrain_olfaction_neuron_annotations,error:503"),
+        )
+
+    def test_setup_continues_when_annotation_cache_raises(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_dir = Path(tmp) / "cache"
+            store = Path(tmp) / "fruitloops.duckdb"
+            with patch("fruitloops.cli_setup.setup_practical_bulk", return_value=[]):
+                with patch(
+                    "fruitloops.cli_setup.build_olfaction_cache",
+                    side_effect=[
+                        [
+                            {
+                                "dataset": "flywire",
+                                "table": "olf_neurons",
+                                "rows": "5",
+                                "status": "built",
+                                "store": str(store),
+                            }
+                        ],
+                        [
+                            {
+                                "dataset": "flywire",
+                                "table": "olf_neurons",
+                                "rows": "5",
+                                "status": "current",
+                                "store": str(store),
+                            }
+                        ],
+                    ],
+                ):
+                    with patch(
+                        "fruitloops.cli_setup.cache_olfaction_annotations",
+                        side_effect=RuntimeError("503 Service Unavailable"),
+                    ):
+                        output = run_cli(
+                            "setup",
+                            "--flywire",
+                            "--no-progress",
+                            "--cache-annotations",
+                            "--cache-dir",
+                            str(cache_dir),
+                            "--store",
+                            str(store),
+                            "--csv",
+                        )
+
+        self.assertIn("flywire,olfaction-rebuild,olf_neurons,current:5", output)
+        self.assertIn("all,annotation-cache,live_annotations,error:503 Service Unavailable", output)
+
     def test_admin_passthrough_preserves_global_data_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             data = Path(tmp)
@@ -274,7 +391,11 @@ class CliTest(unittest.TestCase):
     def test_olfaction_label_classifier_covers_olfactory_targets(self) -> None:
         self.assertEqual(classify_name("OSN_DM1_R"), "ORN")
         self.assertEqual(classify_name("lateral horn neuron LHN_R"), "LHN")
+        self.assertEqual(classify_name("LHAV4a1_b"), "LHN")
+        self.assertEqual(classify_name("LHCENT12"), "LHN")
+        self.assertEqual(classify_name("LHp2_medial"), "LHN")
         self.assertEqual(classify_name("lateral horn target"), "")
+        self.assertEqual(classify_name("LH_R"), "")
         self.assertEqual(classify_name("MBON01"), "MBON")
 
     def test_missing_required_arguments_print_command_help(self) -> None:
@@ -494,6 +615,30 @@ class CliTest(unittest.TestCase):
             self.assertEqual(calls, 1)
             self.assertEqual(len(list_cache(cache_dir)), 1)
 
+    def test_offline_list_reports_cached_queries(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_dir = Path(tmp) / "cache"
+            get_or_fetch(
+                cache_dir,
+                "hemibrain",
+                "neurons",
+                {"body_id": [1], "limit": 1},
+                lambda: [{"id": "1", "weight": "2"}],
+            )
+
+            output = run_cli(
+                "admin",
+                "offline",
+                "--cache-dir",
+                str(cache_dir),
+                "list",
+                "--format",
+                "csv",
+            )
+
+        self.assertIn("dataset,action,key,rows,created_at,path", output)
+        self.assertIn("hemibrain,neurons,", output)
+
     def test_offline_only_misses_without_fetching(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             rows, entry, source = get_or_fetch(
@@ -508,6 +653,45 @@ class CliTest(unittest.TestCase):
         self.assertEqual(rows, [])
         self.assertIsNone(entry)
         self.assertEqual(source, "miss")
+
+    @unittest.skipIf(importlib.util.find_spec("duckdb") is None, "duckdb not installed")
+    def test_annotation_cache_continues_after_one_service_error(self) -> None:
+        import duckdb
+
+        from fruitloops.olfaction_live import cache_olfaction_annotations
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Path(tmp) / "fixture.duckdb"
+            with duckdb.connect(str(store)) as connection:
+                connection.execute("CREATE TABLE olf_neurons(dataset VARCHAR, body_id VARCHAR)")
+
+            with patch(
+                "fruitloops.olfaction_live.cache_hemibrain_annotations",
+                side_effect=RuntimeError("503 Service Unavailable"),
+            ):
+                with patch(
+                    "fruitloops.olfaction_live.cache_flywire_annotations",
+                    return_value=[
+                        {
+                            "dataset": "flywire",
+                            "table": "flywire_neurons",
+                            "rows": "9",
+                            "status": "cached",
+                            "store": str(store),
+                        }
+                    ],
+                ):
+                    rows = cache_olfaction_annotations(
+                        store=store,
+                        datasets=["hemibrain", "flywire"],
+                        rebuild=False,
+                    )
+
+        self.assertEqual(rows[0]["dataset"], "hemibrain")
+        self.assertEqual(rows[0]["status"], "error")
+        self.assertEqual(rows[0]["rows"], "503 Service Unavailable")
+        self.assertEqual(rows[1]["dataset"], "flywire")
+        self.assertEqual(rows[1]["status"], "cached")
 
     def test_bulk_sources_include_primary_offline_tables(self) -> None:
         rows = list_sources()
@@ -574,10 +758,10 @@ class CliTest(unittest.TestCase):
                 )
 
         self.assertTrue(
-            any(row["action"] == "import" and row["status"] == "4" for row in first)
+            any(row["action"] == "import" and row["status"] == "9" for row in first)
         )
         self.assertTrue(
-            any(row["action"] == "import" and row["status"] == "current:4" for row in second)
+            any(row["action"] == "import" and row["status"] == "current:9" for row in second)
         )
         self.assertTrue(
             any(row["action"] == "optimize" and row["status"] == "current" for row in second)
@@ -690,6 +874,21 @@ class CliTest(unittest.TestCase):
                 "--format",
                 "csv",
             )
+            import duckdb
+
+            with duckdb.connect(str(store), read_only=True) as connection:
+                coverage = set(
+                    connection.execute(
+                        """
+                        SELECT region, cell_class
+                        FROM olf_neuron_regions
+                        WHERE dataset = 'flywire' AND cell_class <> ''
+                        """
+                    ).fetchall()
+                )
+                can_rows = connection.execute(
+                    "SELECT count(*) FROM olf_edges_by_neuropil WHERE neuropil = 'CAN_R'"
+                ).fetchone()[0]
             pn_output = run_cli(
                 "olf",
                 "--store",
@@ -789,11 +988,90 @@ class CliTest(unittest.TestCase):
                 "--format",
                 "csv",
             )
+            mbon_output = run_cli(
+                "olf",
+                "--store",
+                str(store),
+                "outputs",
+                "--dataset",
+                "flywire",
+                "--source-class",
+                "PN",
+                "--target-class",
+                "MBON",
+                "--region",
+                "MB",
+                "--format",
+                "csv",
+            )
+            dan_output = run_cli(
+                "olf",
+                "--store",
+                str(store),
+                "outputs",
+                "--dataset",
+                "flywire",
+                "--source-class",
+                "PN",
+                "--target-class",
+                "DAN",
+                "--region",
+                "MB",
+                "--format",
+                "csv",
+            )
+            apl_output = run_cli(
+                "olf",
+                "--store",
+                str(store),
+                "outputs",
+                "--dataset",
+                "flywire",
+                "--source-class",
+                "PN",
+                "--target-class",
+                "APL",
+                "--region",
+                "MB",
+                "--format",
+                "csv",
+            )
+            lhn_output = run_cli(
+                "olf",
+                "--store",
+                str(store),
+                "outputs",
+                "--dataset",
+                "flywire",
+                "--source-class",
+                "PN",
+                "--target-class",
+                "LHN",
+                "--region",
+                "LH",
+                "--format",
+                "csv",
+            )
 
-        self.assertIn("flywire,flywire_proofread_connections,4,imported", build_output)
-        self.assertIn("all,olf_annotations,5,built", build_output)
-        self.assertIn("all,olf_pathway_edges,4,built", build_output)
-        self.assertIn("all,olf_cell_type_summary,8,built", build_output)
+        self.assertIn("flywire,flywire_proofread_connections,8,imported", build_output)
+        self.assertIn("all,olf_annotations,9,built", build_output)
+        self.assertIn("all,olf_pathway_edges,8,built", build_output)
+        self.assertIn("all,olf_cell_type_summary,12,built", build_output)
+        self.assertTrue(
+            {
+                ("AL", "ORN"),
+                ("AL", "PN"),
+                ("LH", "PN"),
+                ("LH", "LN"),
+                ("LH", "LHN"),
+                ("MB", "PN"),
+                ("MB", "KC"),
+                ("MB", "MBON"),
+                ("MB", "DAN"),
+                ("MB", "APL"),
+            }.issubset(coverage)
+        )
+        self.assertEqual(can_rows, 0)
         self.assertIn("flywire,2001,DM1_lPN_R,,PN,DM1,R", pn_output)
         self.assertIn("flywire,2001,DM1_lPN_R,DM1,1,12,R,R,ipsi", orn_input_output)
         self.assertIn("flywire,2001,DM1_lPN_R,DM1,1,5,R,L,contra", orn_input_output)
@@ -802,6 +1080,186 @@ class CliTest(unittest.TestCase):
         self.assertIn("flywire,ORN,PN,DM1,DM1,AL,R,ipsi,ipsi,ipsi,1,1,12", pathway_output)
         self.assertIn("flywire,2001,DM1_lPN_R,PN,DM1,ORN,DM1,1,12,R,R,R,ipsi,ipsi,ipsi", inputs_output)
         self.assertIn("flywire,2001,DM1_lPN_R,PN,DM1,KC,,1,7,R,R,R,ipsi,ipsi,ipsi", outputs_output)
+        self.assertIn("flywire,2001,DM1_lPN_R,PN,DM1,MBON,,1,6", mbon_output)
+        self.assertIn("flywire,2001,DM1_lPN_R,PN,DM1,DAN,,1,5", dan_output)
+        self.assertIn("flywire,2001,DM1_lPN_R,PN,DM1,APL,,1,4", apl_output)
+        self.assertIn("flywire,2001,DM1_lPN_R,PN,DM1,LHN,,1,11", lhn_output)
+
+    @unittest.skipIf(importlib.util.find_spec("duckdb") is None, "duckdb not installed")
+    def test_olfaction_build_maps_hemibrain_mushroom_body_rois(self) -> None:
+        import duckdb
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Path(tmp) / "fixture.duckdb"
+            with duckdb.connect(str(store)) as connection:
+                connection.execute(
+                    """
+                    CREATE TABLE hemibrain_traced_roi_connections(
+                        bodyId_pre BIGINT,
+                        bodyId_post BIGINT,
+                        roi VARCHAR,
+                        weight BIGINT
+                    )
+                    """
+                )
+                connection.execute(
+                    """
+                    INSERT INTO hemibrain_traced_roi_connections VALUES
+                        (1001, 2001, 'AL(R)', 11),
+                        (1001, 6001, 'AL(R)', 4),
+                        (2001, 3001, 'LH(R)', 13),
+                        (2001, 4001, 'CA(R)', 7),
+                        (2001, 4001, 'PED(R)', 5),
+                        (2001, 4001, 'aL(R)', 3),
+                        (2001, 4001, 'a''L(R)', 2),
+                        (2001, 4001, 'bL(R)', 2),
+                        (2001, 4001, 'b''L(R)', 2),
+                        (2001, 4001, 'gL(R)', 2),
+                        (2001, 7001, 'CA(R)', 6),
+                        (2001, 8001, 'PED(R)', 5),
+                        (2001, 9001, 'gL(R)', 4),
+                        (2001, 5001, 'CAN(R)', 17)
+                    """
+                )
+                connection.execute(
+                    """
+                    CREATE TABLE hemibrain_traced_neurons(
+                        bodyId BIGINT,
+                        type VARCHAR,
+                        instance VARCHAR
+                    )
+                    """
+                )
+                connection.execute(
+                    """
+                    INSERT INTO hemibrain_traced_neurons VALUES
+                        (1001, 'ORN_DM1', 'ORN_DM1_R'),
+                        (2001, 'DM1_lPN', 'DM1_lPN_R'),
+                        (3001, 'LHCENT12', 'LHCENT12_R'),
+                        (4001, 'KCg', 'KCg_R'),
+                        (5001, 'KCg', 'KCg_R'),
+                        (6001, 'lLN1', 'lLN1_R'),
+                        (7001, 'MBON01', 'MBON01_R'),
+                        (8001, 'PAM01', 'PAM01_R'),
+                        (9001, 'APL', 'APL_R')
+                    """
+                )
+
+            build_olfaction_cache(store=store, datasets=["hemibrain"], replace=True)
+            with duckdb.connect(str(store), read_only=True) as connection:
+                coverage = set(
+                    connection.execute(
+                        """
+                        SELECT region, cell_class
+                        FROM olf_neuron_regions
+                        WHERE dataset = 'hemibrain' AND cell_class <> ''
+                        """
+                    ).fetchall()
+                )
+                can_rows = connection.execute(
+                    "SELECT count(*) FROM olf_edges_by_neuropil WHERE neuropil = 'CAN(R)'"
+                ).fetchone()[0]
+            output = run_cli(
+                "olf",
+                "--store",
+                str(store),
+                "outputs",
+                "--dataset",
+                "hemibrain",
+                "--source-class",
+                "PN",
+                "--target-class",
+                "KC",
+                "--region",
+                "MB",
+                "--format",
+                "csv",
+            )
+            mbon_output = run_cli(
+                "olf",
+                "--store",
+                str(store),
+                "outputs",
+                "--dataset",
+                "hemibrain",
+                "--source-class",
+                "PN",
+                "--target-class",
+                "MBON",
+                "--region",
+                "MB",
+                "--format",
+                "csv",
+            )
+            dan_output = run_cli(
+                "olf",
+                "--store",
+                str(store),
+                "outputs",
+                "--dataset",
+                "hemibrain",
+                "--source-class",
+                "PN",
+                "--target-class",
+                "DAN",
+                "--region",
+                "MB",
+                "--format",
+                "csv",
+            )
+            apl_output = run_cli(
+                "olf",
+                "--store",
+                str(store),
+                "outputs",
+                "--dataset",
+                "hemibrain",
+                "--source-class",
+                "PN",
+                "--target-class",
+                "APL",
+                "--region",
+                "MB",
+                "--format",
+                "csv",
+            )
+            lhn_output = run_cli(
+                "olf",
+                "--store",
+                str(store),
+                "outputs",
+                "--dataset",
+                "hemibrain",
+                "--source-class",
+                "PN",
+                "--target-class",
+                "LHN",
+                "--region",
+                "LH",
+                "--format",
+                "csv",
+            )
+
+        self.assertTrue(
+            {
+                ("AL", "ORN"),
+                ("AL", "PN"),
+                ("AL", "LN"),
+                ("LH", "PN"),
+                ("LH", "LHN"),
+                ("MB", "PN"),
+                ("MB", "KC"),
+                ("MB", "MBON"),
+                ("MB", "DAN"),
+                ("MB", "APL"),
+            }.issubset(coverage)
+        )
+        self.assertEqual(can_rows, 0)
+        self.assertIn("hemibrain,2001,DM1_lPN,PN,DM1,KC,,1,23", output)
+        self.assertIn("hemibrain,2001,DM1_lPN,PN,DM1,MBON,,1,6", mbon_output)
+        self.assertIn("hemibrain,2001,DM1_lPN,PN,DM1,DAN,,1,5", dan_output)
+        self.assertIn("hemibrain,2001,DM1_lPN,PN,DM1,APL,,1,4", apl_output)
+        self.assertIn("hemibrain,2001,DM1_lPN,PN,DM1,LHN,,1,13", lhn_output)
 
     @unittest.skipIf(importlib.util.find_spec("duckdb") is None, "duckdb not installed")
     def test_olfaction_build_skips_current_cache(self) -> None:

@@ -8,7 +8,8 @@ def sql_classify(expression: str) -> str:
     CASE
         WHEN upper({expression}) LIKE '%LHN%'
           OR upper({expression}) LIKE '%LHON%'
-          OR upper({expression}) LIKE '%LATERAL HORN NEURON%' THEN 'LHN'
+          OR upper({expression}) LIKE '%LATERAL HORN NEURON%'
+          OR regexp_matches(upper({expression}), '(^|[^A-Z0-9])LH[A-Z][A-Z0-9]*([^A-Z0-9]|$)') THEN 'LHN'
         WHEN regexp_matches(upper({expression}), '(^|[^A-Z0-9])ORN([^A-Z0-9]|$)')
           OR regexp_matches(upper({expression}), '(^|[^A-Z0-9])OSN([^A-Z0-9]|$)')
           OR upper({expression}) LIKE '%SENSORY%'
@@ -58,7 +59,12 @@ def sql_side(expression: str) -> str:
 
 def classify_name(value: str | None) -> str:
     text = (value or "").upper()
-    if "LHN" in text or "LHON" in text or "LATERAL HORN NEURON" in text:
+    if (
+        "LHN" in text
+        or "LHON" in text
+        or "LATERAL HORN NEURON" in text
+        or re.search(r"(^|[^A-Z0-9])LH[A-Z][A-Z0-9]*([^A-Z0-9]|$)", text)
+    ):
         return "LHN"
     if (
         has_class_token(text, "ORN")

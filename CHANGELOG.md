@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.1.9 - 2026-05-14
+
+### Fixes
+
+- Classify named lateral horn target types such as `LHAV`, `LHPD`, and
+  `LHCENT` as LHN targets in `olf outputs`.
+- Map hemibrain mushroom body ROIs such as `CA`, `PED`, and lobe names into
+  the MB region for olfaction summaries.
+- Continue `setup --cache-annotations` when a live annotation service fails
+  and report annotation errors after the setup rebuild.
+
 ## 0.1.8 - 2026-05-14
 
 ### Fixes
