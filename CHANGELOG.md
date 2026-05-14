@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.6 - 2026-05-13
+
 ### Changes
 
 - Changed default `fruitloops setup` output to a compact list; CSV and JSON
