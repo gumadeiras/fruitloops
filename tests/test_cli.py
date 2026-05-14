@@ -110,6 +110,52 @@ class CliTest(unittest.TestCase):
         self.assertIn("flywire,import,flywire_proofread_connections,7", output)
         self.assertIn("flywire,olfaction-build,olf_neurons,built:5", output)
 
+    def test_setup_table_output_omits_wide_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_dir = Path(tmp) / "cache"
+            store = Path(tmp) / "fruitloops.duckdb"
+            with patch(
+                "fruitloops.cli_setup.setup_practical_bulk",
+                return_value=[
+                    {
+                        "dataset": "flywire",
+                        "action": "download",
+                        "target": "proofread-connections",
+                        "status": "ok",
+                        "path": "/very/long/path/proofread_connections_783.feather",
+                        "store": str(store),
+                    }
+                ],
+            ):
+                with patch(
+                    "fruitloops.cli_setup.build_olfaction_cache",
+                    return_value=[
+                        {
+                            "dataset": "flywire",
+                            "table": "olf_neurons",
+                            "rows": "5",
+                            "status": "built",
+                            "store": str(store),
+                        }
+                    ],
+                ):
+                    output = run_cli(
+                        "setup",
+                        "--flywire",
+                        "--cache-dir",
+                        str(cache_dir),
+                        "--store",
+                        str(store),
+                        "--no-progress",
+                    )
+
+        self.assertIn("dataset", output)
+        self.assertIn("target", output)
+        self.assertNotIn("path", output)
+        self.assertNotIn("store", output)
+        self.assertNotIn("/very/long/path", output)
+        self.assertNotIn(str(store), output)
+
     def test_setup_can_cache_annotations_before_rebuild(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cache_dir = Path(tmp) / "cache"

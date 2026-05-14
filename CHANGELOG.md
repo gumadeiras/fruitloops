@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Changes
+
+- Made default `fruitloops setup` table output compact by hiding long path and
+  store columns; CSV and JSON still include full paths.
+
 ## 0.1.5 - 2026-05-13
 
 ### Changes

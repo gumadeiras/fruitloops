@@ -92,8 +92,15 @@ def cmd_setup(args: argparse.Namespace, data: FruitloopsData | None) -> int:
         )
         rows.extend(normalize_olfaction_setup_rows(rebuilt_rows, action="olfaction-rebuild"))
     progress.finish("write setup summary")
-    emit_rows(rows, ["dataset", "action", "target", "status", "path", "store"], args.format)
+    emit_setup_rows(rows, args.format)
     return 0
+
+
+def emit_setup_rows(rows: list[dict[str, str]], fmt: str) -> None:
+    if fmt == "table":
+        emit_rows(rows, ["dataset", "action", "target", "status"], fmt)
+        return
+    emit_rows(rows, ["dataset", "action", "target", "status", "path", "store"], fmt)
 
 
 class SetupProgress:
