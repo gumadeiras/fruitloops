@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -10,8 +8,11 @@ from .bulk import (
     require_duckdb,
     result_rows,
     safe_identifier,
+    sha256_json,
     setup_state_matches,
+    table_exists,
     table_fingerprint,
+    table_row_count,
     write_setup_state,
 )
 from .olfaction_labels import sql_classify, sql_glomerulus, sql_side
@@ -591,8 +592,7 @@ def olfaction_source_fingerprint(connection, selected: tuple[str, ...], prefix: 
                 "fingerprint": table_fingerprint(connection, table),
             }
         )
-    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
+    return sha256_json(payload)
 
 
 def olfaction_annotation_sources(connection) -> list[str]:
@@ -604,11 +604,6 @@ def olfaction_annotation_sources(connection) -> list[str]:
         FLYWIRE_PROOFREAD_NEURON_TABLE,
     ]
     return [table for table in candidates if table_exists(connection, table)]
-
-
-def table_row_count(connection, table: str) -> str:
-    return str(connection.execute(f"SELECT count(*) FROM {safe_identifier(table)}").fetchone()[0])
-
 
 def olfaction_tables(store: Path = DEFAULT_DUCKDB_PATH, prefix: str = OLFACTION_PREFIX) -> list[dict[str, str]]:
     duckdb = require_duckdb("olfaction tables")
@@ -1090,18 +1085,3 @@ def read_sql(store: Path, sql: str, params: list[str | int]) -> list[dict[str, s
     with duckdb.connect(str(store), read_only=True) as connection:
         result = connection.execute(sql, params)
         return result_rows(result)
-
-
-def table_exists(connection, table: str) -> bool:
-    return (
-        connection.execute(
-            """
-            SELECT count(*)
-            FROM information_schema.tables
-            WHERE table_schema = 'main'
-              AND table_name = ?
-            """,
-            [table],
-        ).fetchone()[0]
-        > 0
-    )

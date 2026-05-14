@@ -834,6 +834,56 @@ class CliTest(unittest.TestCase):
             any(row["table"] == "olf_neurons" and row["status"] == "current" for row in second)
         )
 
+    @unittest.skipIf(importlib.util.find_spec("duckdb") is None, "duckdb not installed")
+    def test_olfaction_rebuilds_after_same_shape_source_reimport(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            store = tmp_path / "fixture.duckdb"
+            first_source = tmp_path / "first.csv"
+            second_source = tmp_path / "second.csv"
+            rows = [
+                {
+                    "pre_pt_root_id": "1001",
+                    "post_pt_root_id": "2001",
+                    "neuropil": "AL_R",
+                    "syn_count": "12",
+                }
+            ]
+            write_csv(first_source, rows)
+            rows[0]["syn_count"] = "13"
+            write_csv(second_source, rows)
+
+            import_to_duckdb(
+                first_source,
+                "flywire_proofread_connections",
+                store=store,
+                replace=True,
+                skip_current=True,
+            )
+            build_olfaction_cache(
+                store=store,
+                datasets=["flywire"],
+                replace=True,
+                skip_current=True,
+            )
+            import_to_duckdb(
+                second_source,
+                "flywire_proofread_connections",
+                store=store,
+                replace=True,
+                skip_current=True,
+            )
+            rebuilt = build_olfaction_cache(
+                store=store,
+                datasets=["flywire"],
+                replace=True,
+                skip_current=True,
+            )
+
+        self.assertTrue(
+            any(row["table"] == "olf_neurons" and row["status"] == "built" for row in rebuilt)
+        )
+
 
 def run_cli(*args: str) -> str:
     return run_cli_capture(*args)[0]

@@ -468,6 +468,11 @@ def ensure_setup_state(connection) -> None:
 
 
 def setup_state_matches(connection, stage_key: str, source_fingerprint: str) -> bool:
+    stored = setup_state_fingerprint(connection, stage_key)
+    return stored == source_fingerprint
+
+
+def setup_state_fingerprint(connection, stage_key: str) -> str:
     ensure_setup_state(connection)
     row = connection.execute(
         f"""
@@ -477,7 +482,7 @@ def setup_state_matches(connection, stage_key: str, source_fingerprint: str) -> 
         """,
         [stage_key],
     ).fetchone()
-    return bool(row and row[0] == source_fingerprint)
+    return str(row[0]) if row else ""
 
 
 def write_setup_state(
@@ -553,11 +558,13 @@ def table_fingerprint(connection, table: str) -> str:
     if not table_exists(connection, table):
         return sha256_json({"table": table, "missing": True})
     columns = connection.execute(f"DESCRIBE {table}").fetchall()
+    import_fingerprint = setup_state_fingerprint(connection, f"import:{table}")
     return sha256_json(
         {
             "table": table,
             "rows": table_row_count(connection, table),
             "columns": [[str(value) for value in row] for row in columns],
+            "import_source_fingerprint": import_fingerprint,
         }
     )
 
