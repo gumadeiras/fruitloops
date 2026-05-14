@@ -5,7 +5,7 @@ import importlib.util
 import os
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
@@ -88,7 +88,7 @@ class CliTest(unittest.TestCase):
                         }
                     ],
                 ) as olfaction_build:
-                    output = run_cli(
+                    output, progress = run_cli_capture(
                         "setup",
                         "--flywire",
                         "--cache-dir",
@@ -102,6 +102,10 @@ class CliTest(unittest.TestCase):
         self.assertTrue(cache_exists)
         bulk_setup.assert_called_once()
         olfaction_build.assert_called_once()
+        self.assertIn("fruitloops setup [1/3] prepare live cache", progress)
+        self.assertIn("fruitloops setup [2/3] flywire: download/import bulk connectivity", progress)
+        self.assertIn("fruitloops setup [3/3] build derived olfaction tables", progress)
+        self.assertIn("fruitloops setup done: write setup summary", progress)
         self.assertIn("all,cache,live_cache,ready", output)
         self.assertIn("flywire,import,flywire_proofread_connections,7", output)
         self.assertIn("flywire,olfaction-build,olf_neurons,built:5", output)
@@ -146,9 +150,10 @@ class CliTest(unittest.TestCase):
                             }
                         ],
                     ) as annotation_cache:
-                        output = run_cli(
+                        output, progress = run_cli_capture(
                             "setup",
                             "--flywire",
+                            "--no-progress",
                             "--cache-annotations",
                             "--cache-dir",
                             str(cache_dir),
@@ -159,6 +164,7 @@ class CliTest(unittest.TestCase):
 
         annotation_cache.assert_called_once()
         self.assertEqual(olfaction_build.call_count, 2)
+        self.assertEqual(progress, "")
         self.assertIn("flywire,annotation-cache,flywire_neurons,cached:9", output)
         self.assertIn("flywire,olfaction-rebuild,olf_neurons,built:6", output)
 
@@ -704,8 +710,13 @@ class CliTest(unittest.TestCase):
 
 
 def run_cli(*args: str) -> str:
+    return run_cli_capture(*args)[0]
+
+
+def run_cli_capture(*args: str) -> tuple[str, str]:
     output = StringIO()
-    with redirect_stdout(output):
+    progress = StringIO()
+    with redirect_stdout(output), redirect_stderr(progress):
         try:
             result = main(list(args))
         except SystemExit as error:
@@ -714,7 +725,7 @@ def run_cli(*args: str) -> str:
             result = 0
     if result != 0:
         raise AssertionError(f"CLI exited with {result}")
-    return output.getvalue()
+    return output.getvalue(), progress.getvalue()
 
 
 def write_csv(path: Path, rows: list[dict[str, str]]) -> None:

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Changes
+
+- Added stderr progress updates to `fruitloops setup`, with `--no-progress`
+  for quiet pipeline runs.
+
 ## 0.1.4 - 2026-05-13
 
 ### Features

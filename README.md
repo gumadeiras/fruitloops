@@ -51,6 +51,10 @@ live cache directory, and builds derived olfaction tables:
 fruitloops setup
 ```
 
+Setup prints numbered progress updates to stderr while keeping the final table,
+CSV, JSON, or JSONL summary on stdout. Use `--no-progress` for fully quiet
+pipeline runs.
+
 Run directly from the repository:
 
 ```bash
