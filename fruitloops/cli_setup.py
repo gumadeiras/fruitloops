@@ -98,9 +98,21 @@ def cmd_setup(args: argparse.Namespace, data: FruitloopsData | None) -> int:
 
 def emit_setup_rows(rows: list[dict[str, str]], fmt: str) -> None:
     if fmt == "table":
-        emit_rows(rows, ["dataset", "action", "target", "status"], fmt)
+        print_setup_list(rows)
         return
     emit_rows(rows, ["dataset", "action", "target", "status", "path", "store"], fmt)
+
+
+def print_setup_list(rows: list[dict[str, str]]) -> None:
+    current_dataset = None
+    for row in rows:
+        dataset = row["dataset"]
+        if dataset != current_dataset:
+            if current_dataset is not None:
+                print()
+            print(f"{dataset}:")
+            current_dataset = dataset
+        print(f"  - {row['action']}: {row['target']} -> {row['status']}")
 
 
 class SetupProgress:

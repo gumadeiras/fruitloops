@@ -110,7 +110,7 @@ class CliTest(unittest.TestCase):
         self.assertIn("flywire,import,flywire_proofread_connections,7", output)
         self.assertIn("flywire,olfaction-build,olf_neurons,built:5", output)
 
-    def test_setup_table_output_omits_wide_paths(self) -> None:
+    def test_setup_table_output_uses_compact_list(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cache_dir = Path(tmp) / "cache"
             store = Path(tmp) / "fruitloops.duckdb"
@@ -149,8 +149,11 @@ class CliTest(unittest.TestCase):
                         "--no-progress",
                     )
 
-        self.assertIn("dataset", output)
-        self.assertIn("target", output)
+        self.assertIn("all:\n  - cache: live_cache -> ready", output)
+        self.assertIn("flywire:\n  - download: proofread-connections -> ok", output)
+        self.assertIn("  - olfaction-build: olf_neurons -> built:5", output)
+        self.assertNotIn("dataset", output)
+        self.assertNotIn("target", output)
         self.assertNotIn("path", output)
         self.assertNotIn("store", output)
         self.assertNotIn("/very/long/path", output)

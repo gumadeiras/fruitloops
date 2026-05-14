@@ -52,9 +52,9 @@ fruitloops setup
 ```
 
 Setup prints numbered progress updates to stderr while keeping the final
-summary on stdout. The default table output is compact; use `--csv` or `--json`
-when you need full file paths and DuckDB store locations. Use `--no-progress`
-for fully quiet pipeline runs.
+summary on stdout. The default output is a compact list; use `--csv` or
+`--json` when you need full file paths and DuckDB store locations. Use
+`--no-progress` for fully quiet pipeline runs.
 
 Run directly from the repository:
 
