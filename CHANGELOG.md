@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Changes
+
+- Added a local release wrapper for version sync, package validation, tagging, and release workflow verification.
+- Normalized release artifact actions and documented the local release wrapper.
+
 ## 0.1.9 - 2026-05-14
 
 ### Fixes

@@ -13,6 +13,8 @@ and FlyWire. Prefer local data before live APIs.
 - Do not commit secrets. `.env` and `cache/` are ignored.
 - Do not create GitHub, PyPI, or Homebrew releases unless the user explicitly
   asks for a release.
+- Use `./scripts/release check <version>` for local release preflight.
+- Use `./scripts/release run <version>` only after explicit release approval.
 - Use `.env.example` for required env names.
 - Use `python3 -m fruitloops ...` from repo root.
 - Prefer CSV/JSON/JSONL output for downstream analysis.

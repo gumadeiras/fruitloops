@@ -16,21 +16,15 @@ PyPI, and updates `gumadeiras/homebrew-tap`.
 ## Cut A Release
 
 ```bash
-version=0.1.2
+version=X.Y.Z
 
-python3 -m unittest discover -s tests
-python -m build
-python -m twine check dist/*
-
-git add pyproject.toml fruitloops/__init__.py
-git commit -m "Bump fruitloops to ${version}"
-git push origin HEAD:refs/heads/main
-
-git tag -a "v${version}" -m "fruitloops ${version}"
-git push origin "refs/tags/v${version}"
-
-gh run watch --workflow release --exit-status
+./scripts/release check "$version"
+./scripts/release run "$version"
 ```
+
+Use `run` only after explicit release approval. The wrapper updates version
+files, runs the local preflight, commits, tags, pushes `main`, pushes `vX.Y.Z`,
+and waits for release CI.
 
 ## What The Workflow Does
 
@@ -71,7 +65,7 @@ fruitloops setup
 Manual tap fallback:
 
 ```bash
-version=0.1.2
+version=X.Y.Z
 sha256=$(curl -L --fail --silent \
   "https://github.com/gumadeiras/fruitloops/releases/download/v${version}/fruitloops-${version}.tar.gz" |
   shasum -a 256 | awk '{print $1}')

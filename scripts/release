@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DEFAULT_REMOTE="${FRUITLOOPS_RELEASE_REMOTE:-origin}"
+PYTHON="${PYTHON:-python3}"
+PACKAGE_DIST="fruitloops"
+CLI_BIN="fruitloops"
+VERSION_FILES=(pyproject.toml fruitloops/__init__.py)
+TEST_COMMAND=(python -m unittest discover -s tests)
+
+usage() {
+  cat <<'EOF'
+Usage:
+  ./scripts/release check <version>
+  ./scripts/release bump <version>
+  ./scripts/release publish <version>
+  ./scripts/release run <version>
+
+Commands:
+  check     Validate synced versions, workflow syntax, tests, build, and install smoke.
+  bump      Update version files only.
+  publish   Wait for the GitHub release workflow for v<version> and verify it.
+  run       Bump, test, commit, tag, push, and wait for the workflow.
+EOF
+}
+
+die() { echo "error: $*" >&2; exit 1; }
+require_tool() { command -v "$1" >/dev/null 2>&1 || die "missing required tool: $1"; }
+require_clean_tree() {
+  local status
+  status="$(git -C "$ROOT_DIR" status --short)"
+  if [[ -n "$status" ]]; then echo "$status" >&2; die "working tree must be clean"; fi
+}
+
+run_actionlint() {
+  if command -v actionlint >/dev/null 2>&1; then
+    (cd "$ROOT_DIR" && actionlint .github/workflows/*.yml)
+  else
+    echo "actionlint not installed; skipping workflow lint."
+  fi
+}
+
+run_checks() {
+  local version="$1"
+  "$ROOT_DIR/scripts/sync-version.sh" --check "$version"
+  run_actionlint
+
+  local venv
+  venv="$(mktemp -d)"
+  RELEASE_CHECK_VENV="$venv"
+  cleanup() { rm -rf "${RELEASE_CHECK_VENV:-}"; }
+  trap cleanup EXIT
+
+  "$PYTHON" -m venv "$venv"
+  "$venv/bin/python" -m pip install --upgrade pip build twine >/dev/null
+  "$venv/bin/python" -m pip install -e "$ROOT_DIR" >/dev/null
+  (cd "$ROOT_DIR" && "$venv/bin/${TEST_COMMAND[@]}")
+
+  rm -rf "$ROOT_DIR/dist"
+  (cd "$ROOT_DIR" && "$venv/bin/python" -m build)
+  (cd "$ROOT_DIR" && "$venv/bin/python" -m twine check dist/*)
+
+  local wheel
+  wheel="$(find "$ROOT_DIR/dist" -maxdepth 1 -name "${PACKAGE_DIST}-${version}-*.whl" -print -quit)"
+  [[ -n "$wheel" ]] || die "missing wheel for $PACKAGE_DIST $version"
+
+  local install_venv
+  install_venv="$venv/install"
+  "$PYTHON" -m venv "$install_venv"
+  "$install_venv/bin/python" -m pip install "$wheel" >/dev/null
+  "$install_venv/bin/$CLI_BIN" --version | grep -F "$version" >/dev/null
+}
+
+bump_version() { "$ROOT_DIR/scripts/sync-version.sh" "$1"; }
+
+commit_tag_and_push() {
+  local version="$1"
+  local tag="v$version"
+  local branch
+  (
+    cd "$ROOT_DIR"
+    branch="$(git branch --show-current)"
+    [[ -n "$branch" ]] || die "cannot release from detached HEAD"
+    git add "${VERSION_FILES[@]}"
+    git commit -m "Bump version to $version"
+    git tag -a "$tag" -m "$tag"
+    git push "$DEFAULT_REMOTE" "HEAD:refs/heads/$branch"
+    git push "$DEFAULT_REMOTE" "$tag"
+  )
+}
+
+wait_for_release_run() {
+  local tag="$1"
+  local run_id=""
+  for _ in {1..20}; do
+    run_id="$(cd "$ROOT_DIR" && gh run list --workflow release.yml --branch "$tag" --event push --json databaseId --jq '.[0].databaseId // empty' --limit 1)"
+    [[ -z "$run_id" ]] || break
+    sleep 3
+  done
+  [[ -n "$run_id" ]] || die "could not find GitHub Actions release run for $tag"
+  (cd "$ROOT_DIR" && gh run watch "$run_id" --exit-status)
+}
+
+publish_release() {
+  local version="$1"
+  require_tool gh
+  (cd "$ROOT_DIR" && gh auth status >/dev/null)
+  wait_for_release_run "v$version"
+  echo "Release v$version workflow finished."
+}
+
+MODE="${1:-}"
+[[ -n "$MODE" ]] || { usage >&2; exit 2; }
+shift
+
+case "$MODE" in
+  check | bump | publish | run) [[ $# -eq 1 ]] || { usage >&2; exit 2; }; VERSION="$1" ;;
+  *) usage >&2; exit 2 ;;
+esac
+
+case "$MODE" in
+  check) run_checks "$VERSION" ;;
+  bump) require_clean_tree; bump_version "$VERSION" ;;
+  publish) publish_release "$VERSION" ;;
+  run) require_clean_tree; require_tool gh; bump_version "$VERSION"; run_checks "$VERSION"; commit_tag_and_push "$VERSION"; publish_release "$VERSION" ;;
+esac
