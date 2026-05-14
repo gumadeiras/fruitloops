@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.1.7 - 2026-05-13
+
+### Fixes
+
+- Fixed Homebrew installs on x86_64 Linux by using Linux wheels for binary
+  runtime dependencies instead of macOS wheels.
+
 ## 0.1.6 - 2026-05-13
 
 ### Changes
