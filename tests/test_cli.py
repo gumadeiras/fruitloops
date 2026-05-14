@@ -835,6 +835,39 @@ class CliTest(unittest.TestCase):
         )
 
     @unittest.skipIf(importlib.util.find_spec("duckdb") is None, "duckdb not installed")
+    def test_olfaction_build_rebuilds_incomplete_current_cache(self) -> None:
+        import duckdb
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Path(tmp) / "fixture.duckdb"
+            for path, table in [
+                ("tests/fixtures/bulk/flywire_olf_connections.csv", "flywire_proofread_connections"),
+                ("tests/fixtures/bulk/flywire_hierarchical.csv", "flywire_hierarchical_neuron_annotations"),
+                ("tests/fixtures/bulk/flywire_neuron_info.csv", "flywire_neuron_information_v2"),
+            ]:
+                import_to_duckdb(Path(path), table, store=store, replace=True)
+
+            build_olfaction_cache(
+                store=store,
+                datasets=["flywire"],
+                replace=True,
+                skip_current=True,
+            )
+            with duckdb.connect(str(store)) as connection:
+                connection.execute("DROP TABLE olf_pathway_edges")
+
+            rebuilt = build_olfaction_cache(
+                store=store,
+                datasets=["flywire"],
+                replace=True,
+                skip_current=True,
+            )
+
+        self.assertTrue(
+            any(row["table"] == "olf_pathway_edges" and row["status"] == "built" for row in rebuilt)
+        )
+
+    @unittest.skipIf(importlib.util.find_spec("duckdb") is None, "duckdb not installed")
     def test_olfaction_rebuilds_after_same_shape_source_reimport(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)

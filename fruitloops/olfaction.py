@@ -27,6 +27,7 @@ FLYWIRE_CONNECTION_TABLE = "flywire_proofread_connections"
 FLYWIRE_HIERARCHICAL_TABLE = "flywire_hierarchical_neuron_annotations"
 FLYWIRE_NEURON_INFO_TABLE = "flywire_neuron_information_v2"
 FLYWIRE_PROOFREAD_NEURON_TABLE = "flywire_proofread_neurons"
+OLFACTION_SCHEMA_VERSION = "2"
 
 
 @dataclass(frozen=True)
@@ -72,7 +73,7 @@ def build_olfaction_cache(
     with duckdb.connect(str(store)) as connection:
         stage_key = f"olfaction:{prefix}:{','.join(sorted(selected))}"
         fingerprint = olfaction_source_fingerprint(connection, selected, prefix)
-        if skip_current and table_exists(connection, f"{prefix}_neurons") and setup_state_matches(
+        if skip_current and olfaction_cache_exists(connection, prefix) and setup_state_matches(
             connection,
             stage_key,
             fingerprint,
@@ -131,6 +132,10 @@ def olfaction_table_names(prefix: str) -> list[str]:
         f"{prefix}_pathway_summary",
         f"{prefix}_cell_type_summary",
     ]
+
+
+def olfaction_cache_exists(connection, prefix: str) -> bool:
+    return all(table_exists(connection, table) for table in olfaction_table_names(prefix))
 
 
 def create_connection_table(connection, prefix: str) -> None:
@@ -571,6 +576,7 @@ def table_counts(
 
 def olfaction_source_fingerprint(connection, selected: tuple[str, ...], prefix: str) -> str:
     payload = {
+        "schema_version": OLFACTION_SCHEMA_VERSION,
         "prefix": prefix,
         "datasets": list(selected),
         "connection_tables": [],

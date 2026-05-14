@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.1.8 - 2026-05-14
+
+### Fixes
+
+- Rebuild derived olfaction tables when an existing setup cache is missing
+  newer tables, so `olf inputs` and `olf outputs` do not use stale caches.
+
 ## 0.1.7 - 2026-05-13
 
 ### Fixes
