@@ -2,8 +2,33 @@
 
 ## Unreleased
 
+## 0.1.10 - 2026-05-15
+
+### Features
+
+- Added hemibrain live ORN-to-PN annotation caching so broad hemibrain
+  glomerulus input queries can use full neuPrint ORN coverage instead of only
+  the compact traced-neuron adjacency cache.
+- Added stale olfaction annotation freshness checks so `fruitloops olf`
+  queries rebuild derived tables when newer annotation tables are available.
+
+### Fixes
+
+- Fixed FlyWire ORN/PN/glomerulus filters when annotation tables were imported
+  after the derived olfaction cache had already been built.
+- Fixed FlyWire and hemibrain glomerulus parsing for labels such as
+  `DM1 / Or42b ORN`, `sensory,DA1,ORN`, and `DM3_adPN`.
+- Fixed full olfaction builds after subset builds so both FlyWire and
+  hemibrain data are rebuilt when requested.
+- Added a clear hemibrain compact-cache warning when ORN queries need full
+  live ORN-to-PN cache data.
+
 ### Changes
 
+- Documented setup, `--cache-annotations`, required live credentials, olfaction
+  command vocabulary, and broad glomerulus coverage in README and setup docs.
+- Added runnable IDs to examples so documented commands can execute without
+  placeholder replacement.
 - Added a local release wrapper for version sync, package validation, tagging, and release workflow verification.
 - Normalized release artifact actions and documented the local release wrapper.
 

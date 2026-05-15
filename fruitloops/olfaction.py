@@ -23,11 +23,12 @@ OLFACTION_REGIONS = ("AL", "LH", "MB")
 HEMIBRAIN_CONNECTION_TABLE = "hemibrain_traced_roi_connections"
 HEMIBRAIN_NEURON_TABLE = "hemibrain_traced_neurons"
 HEMIBRAIN_OLFACTION_ANNOTATION_TABLE = "hemibrain_olfaction_neuron_annotations"
+HEMIBRAIN_OLFACTION_ORN_PN_TABLE = "hemibrain_olfaction_orn_pn_connections"
 FLYWIRE_CONNECTION_TABLE = "flywire_proofread_connections"
 FLYWIRE_HIERARCHICAL_TABLE = "flywire_hierarchical_neuron_annotations"
 FLYWIRE_NEURON_INFO_TABLE = "flywire_neuron_information_v2"
 FLYWIRE_PROOFREAD_NEURON_TABLE = "flywire_proofread_neurons"
-OLFACTION_SCHEMA_VERSION = "4"
+OLFACTION_SCHEMA_VERSION = "7"
 
 
 @dataclass(frozen=True)
@@ -73,10 +74,11 @@ def build_olfaction_cache(
     with duckdb.connect(str(store)) as connection:
         stage_key = f"olfaction:{prefix}:{','.join(sorted(selected))}"
         fingerprint = olfaction_source_fingerprint(connection, selected, prefix)
-        if skip_current and olfaction_cache_exists(connection, prefix) and setup_state_matches(
-            connection,
-            stage_key,
-            fingerprint,
+        if (
+            skip_current
+            and olfaction_cache_exists(connection, prefix)
+            and olfaction_cache_covers_datasets(connection, prefix, selected)
+            and setup_state_matches(connection, stage_key, fingerprint)
         ):
             return table_counts(connection, prefix, store, [], status="current")
         if not replace and table_exists(connection, f"{prefix}_neurons"):
@@ -93,6 +95,9 @@ def build_olfaction_cache(
                 continue
             insert_connection_rows(connection, prefix, spec)
             imported.append(source_row(connection, prefix, dataset, spec.table, store))
+        if "hemibrain" in selected and table_exists(connection, HEMIBRAIN_OLFACTION_ORN_PN_TABLE):
+            insert_hemibrain_orn_pn_connection_rows(connection, prefix)
+            imported.append(source_row(connection, prefix, "hemibrain", HEMIBRAIN_OLFACTION_ORN_PN_TABLE, store))
         create_membership_table(connection, prefix)
         create_neuron_table(connection, prefix)
         insert_hemibrain_annotations(connection, prefix)
@@ -156,6 +161,21 @@ def olfaction_table_names(prefix: str) -> list[str]:
 
 def olfaction_cache_exists(connection, prefix: str) -> bool:
     return all(table_exists(connection, table) for table in olfaction_table_names(prefix))
+
+
+def olfaction_cache_covers_datasets(connection, prefix: str, datasets: tuple[str, ...]) -> bool:
+    if not table_exists(connection, f"{prefix}_provenance"):
+        return False
+    present = {
+        row[0]
+        for row in connection.execute(
+            f"""
+            SELECT DISTINCT dataset
+            FROM {prefix}_provenance
+            """
+        ).fetchall()
+    }
+    return set(datasets).issubset(present)
 
 
 def create_connection_table(connection, prefix: str) -> None:
@@ -223,6 +243,44 @@ def insert_connection_rows(connection, prefix: str, spec: ConnectionSpec) -> Non
     )
 
 
+def insert_hemibrain_orn_pn_connection_rows(connection, prefix: str) -> None:
+    table = safe_identifier(HEMIBRAIN_OLFACTION_ORN_PN_TABLE)
+    connection.execute(
+        f"""
+        INSERT INTO {prefix}_edges_by_neuropil
+        SELECT
+            'hemibrain' AS dataset,
+            CAST(live.bodyId_pre AS VARCHAR) AS pre_id,
+            CAST(live.bodyId_post AS VARCHAR) AS post_id,
+            coalesce(nullif(CAST(live.roi AS VARCHAR), ''), 'AL') AS neuropil,
+            'AL' AS region,
+            CASE
+                WHEN upper(CAST(live.roi AS VARCHAR)) LIKE '%(R)%'
+                  OR upper(CAST(live.roi AS VARCHAR)) LIKE '%_R'
+                  OR upper(CAST(live.roi AS VARCHAR)) LIKE '%_R_%'
+                THEN 'R'
+                WHEN upper(CAST(live.roi AS VARCHAR)) LIKE '%(L)%'
+                  OR upper(CAST(live.roi AS VARCHAR)) LIKE '%_L'
+                  OR upper(CAST(live.roi AS VARCHAR)) LIKE '%_L_%'
+                THEN 'L'
+                ELSE ''
+            END AS hemisphere,
+            CAST(live.weight AS BIGINT) AS synapses,
+            ? AS source_table
+        FROM {table} AS live
+        WHERE CAST(live.weight AS BIGINT) > 0
+          AND NOT EXISTS (
+            SELECT 1
+            FROM {prefix}_edges_by_neuropil AS existing
+            WHERE existing.dataset = 'hemibrain'
+              AND existing.pre_id = CAST(live.bodyId_pre AS VARCHAR)
+              AND existing.post_id = CAST(live.bodyId_post AS VARCHAR)
+          )
+        """,
+        [HEMIBRAIN_OLFACTION_ORN_PN_TABLE],
+    )
+
+
 def create_membership_table(connection, prefix: str) -> None:
     connection.execute(
         f"""
@@ -281,20 +339,69 @@ def create_neuron_table(connection, prefix: str) -> None:
 
 def insert_hemibrain_annotations(connection, prefix: str) -> None:
     table = hemibrain_annotation_table(connection)
-    if not table:
+    if table:
+        connection.execute(
+            f"""
+            UPDATE {prefix}_neurons AS n
+            SET primary_name = coalesce(h.type, ''),
+                instance = coalesce(h.instance, ''),
+                aliases = coalesce(h.type, ''),
+                cell_class = {sql_classify("coalesce(h.type, h.instance, '')")},
+                glomerulus = {sql_glomerulus("coalesce(h.type, h.instance, '')")},
+                side = {sql_side("coalesce(h.instance, h.type, '')")}
+            FROM {table} AS h
+            WHERE n.dataset = 'hemibrain'
+              AND n.body_id = CAST(h.bodyId AS VARCHAR)
+            """
+        )
+    insert_hemibrain_orn_pn_annotations(connection, prefix)
+
+
+def insert_hemibrain_orn_pn_annotations(connection, prefix: str) -> None:
+    if not table_exists(connection, HEMIBRAIN_OLFACTION_ORN_PN_TABLE):
         return
+    table = safe_identifier(HEMIBRAIN_OLFACTION_ORN_PN_TABLE)
     connection.execute(
         f"""
+        WITH labels AS (
+            SELECT CAST(bodyId_pre AS VARCHAR) AS body_id,
+                   min(pre_type) AS type,
+                   min(pre_instance) AS instance
+            FROM {table}
+            GROUP BY bodyId_pre
+            UNION ALL
+            SELECT CAST(bodyId_post AS VARCHAR) AS body_id,
+                   min(post_type) AS type,
+                   min(post_instance) AS instance
+            FROM {table}
+            GROUP BY bodyId_post
+        ),
+        per_body AS (
+            SELECT body_id,
+                   min(type) AS type,
+                   min(instance) AS instance
+            FROM labels
+            GROUP BY body_id
+        )
         UPDATE {prefix}_neurons AS n
-        SET primary_name = coalesce(h.type, ''),
-            instance = coalesce(h.instance, ''),
-            aliases = coalesce(h.type, ''),
-            cell_class = {sql_classify("coalesce(h.type, h.instance, '')")},
-            glomerulus = {sql_glomerulus("coalesce(h.type, h.instance, '')")},
-            side = {sql_side("coalesce(h.instance, h.type, '')")}
-        FROM {table} AS h
+        SET primary_name = coalesce(nullif(per_body.type, ''), n.primary_name),
+            instance = coalesce(nullif(per_body.instance, ''), n.instance),
+            aliases = trim(concat_ws('; ', nullif(n.aliases, ''), nullif(per_body.type, ''), nullif(per_body.instance, ''))),
+            cell_class = coalesce(
+                nullif({sql_classify("coalesce(per_body.type, per_body.instance, '')")}, ''),
+                n.cell_class
+            ),
+            glomerulus = coalesce(
+                nullif({sql_glomerulus("coalesce(per_body.type, per_body.instance, '')")}, ''),
+                n.glomerulus
+            ),
+            side = coalesce(
+                nullif({sql_side("coalesce(per_body.instance, per_body.type, '')")}, ''),
+                n.side
+            )
+        FROM per_body
         WHERE n.dataset = 'hemibrain'
-          AND n.body_id = CAST(h.bodyId AS VARCHAR)
+          AND n.body_id = per_body.body_id
         """
     )
 
@@ -604,6 +711,14 @@ def olfaction_source_fingerprint(connection, selected: tuple[str, ...], prefix: 
                 "fingerprint": table_fingerprint(connection, spec.table),
             }
         )
+    if "hemibrain" in selected and table_exists(connection, HEMIBRAIN_OLFACTION_ORN_PN_TABLE):
+        payload["connection_tables"].append(
+            {
+                "dataset": "hemibrain",
+                "table": HEMIBRAIN_OLFACTION_ORN_PN_TABLE,
+                "fingerprint": table_fingerprint(connection, HEMIBRAIN_OLFACTION_ORN_PN_TABLE),
+            }
+        )
     for table in olfaction_annotation_sources(connection):
         payload["annotation_tables"].append(
             {
@@ -617,6 +732,7 @@ def olfaction_source_fingerprint(connection, selected: tuple[str, ...], prefix: 
 def olfaction_annotation_sources(connection) -> list[str]:
     candidates = [
         HEMIBRAIN_OLFACTION_ANNOTATION_TABLE,
+        HEMIBRAIN_OLFACTION_ORN_PN_TABLE,
         HEMIBRAIN_NEURON_TABLE,
         FLYWIRE_HIERARCHICAL_TABLE,
         FLYWIRE_NEURON_INFO_TABLE,

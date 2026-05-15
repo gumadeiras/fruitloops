@@ -337,7 +337,7 @@ fruitloops table comparison:matched_ln_class_similarity --schema --csv
 fruitloops table comparison:matched_ln_class_similarity --contains LN_class=il3LN6 --json
 fruitloops find il3LN6 --flywire --csv
 fruitloops partners il3LN6 --flywire --orn --csv
-fruitloops admin offline fetch --dataset flywire --action synapses --pre-root-id ROOT --limit 10 --csv
+fruitloops admin offline fetch --dataset flywire --action synapses --pre-root-id 720575940623636701 --limit 10 --csv
 fruitloops setup --flywire --csv
 """
 

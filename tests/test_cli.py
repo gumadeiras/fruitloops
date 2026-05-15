@@ -25,8 +25,19 @@ from fruitloops.bulk import (
 from fruitloops.cache import DEFAULT_CACHE_DIR, get_or_fetch, list_cache
 from fruitloops.env import load_env_file
 from fruitloops.live import parse_in_filters, parse_ints
-from fruitloops.olfaction import build_olfaction_cache
-from fruitloops.olfaction_labels import classify_name
+from fruitloops.cli_olfaction import CELL_CLASS_CHOICES
+from fruitloops.olfaction import (
+    HEMIBRAIN_OLFACTION_ORN_PN_TABLE,
+    OLFACTION_REGIONS,
+    build_olfaction_cache,
+    olfaction_class_summary,
+    olfaction_glomerulus_summary,
+    olfaction_input_summary,
+    olfaction_orn_inputs,
+    olfaction_pathway_summary,
+    olfaction_pns,
+)
+from fruitloops.olfaction_labels import classify_name, infer_glomerulus
 from fruitloops.paths import default_data_dir, default_duckdb_path, default_live_cache_dir
 from fruitloops.plotting import PlotSpec
 
@@ -59,9 +70,15 @@ class CliTest(unittest.TestCase):
     def test_examples_and_admin_passthrough(self) -> None:
         examples = run_cli("examples")
         admin = run_cli("admin", "bulk", "sources", "--csv")
+        cache_help = run_cli("olf", "cache-annotations", "--help")
 
         self.assertIn("fruitloops status --csv", examples)
+        self.assertNotIn("ROOT", examples)
+        self.assertNotIn("BODY", examples)
+        self.assertNotIn("...", examples)
         self.assertIn("dataset,kind,format", admin)
+        self.assertIn("--hemibrain", cache_help)
+        self.assertIn("--flywire", cache_help)
 
     def test_setup_wraps_bulk_cache_and_olfaction_build(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -397,6 +414,10 @@ class CliTest(unittest.TestCase):
         self.assertEqual(classify_name("lateral horn target"), "")
         self.assertEqual(classify_name("LH_R"), "")
         self.assertEqual(classify_name("MBON01"), "MBON")
+        self.assertEqual(infer_glomerulus("DM1 / Or42b ORN"), "DM1")
+        self.assertEqual(infer_glomerulus("sensory,DA1,ORN"), "DA1")
+        self.assertEqual(infer_glomerulus("sensory,ORN,VA1d"), "VA1d")
+        self.assertEqual(infer_glomerulus("DM3_adPN"), "DM3")
 
     def test_missing_required_arguments_print_command_help(self) -> None:
         self.assertIn("usage: fruitloops schema", run_cli("schema"))
@@ -1262,6 +1283,283 @@ class CliTest(unittest.TestCase):
         self.assertIn("hemibrain,2001,DM1_lPN,PN,DM1,LHN,,1,13", lhn_output)
 
     @unittest.skipIf(importlib.util.find_spec("duckdb") is None, "duckdb not installed")
+    def test_olfaction_build_makes_every_hemibrain_orn_pn_glomerulus_queryable(self) -> None:
+        import duckdb
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Path(tmp) / "fixture.duckdb"
+            with duckdb.connect(str(store)) as connection:
+                connection.execute(
+                    """
+                    CREATE TABLE hemibrain_traced_roi_connections(
+                        bodyId_pre BIGINT,
+                        bodyId_post BIGINT,
+                        roi VARCHAR,
+                        weight BIGINT
+                    )
+                    """
+                )
+                connection.execute(
+                    """
+                    CREATE TABLE hemibrain_traced_neurons(
+                        bodyId BIGINT,
+                        type VARCHAR,
+                        instance VARCHAR
+                    )
+                    """
+                )
+                connection.execute(
+                    f"""
+                    CREATE TABLE {HEMIBRAIN_OLFACTION_ORN_PN_TABLE}(
+                        bodyId_pre BIGINT,
+                        bodyId_post BIGINT,
+                        roi VARCHAR,
+                        weight BIGINT,
+                        pre_type VARCHAR,
+                        pre_instance VARCHAR,
+                        post_type VARCHAR,
+                        post_instance VARCHAR
+                    )
+                    """
+                )
+                connection.execute(
+                    f"""
+                    INSERT INTO {HEMIBRAIN_OLFACTION_ORN_PN_TABLE} VALUES
+                        (1001, 2001, 'AL(R)', 12, 'ORN_DM1', 'ORN_DM1_R', 'DM1_lPN', 'DM1_lPN_R'),
+                        (1002, 2001, 'AL(L)', 5, 'ORN_DM1', 'ORN_DM1_L', 'DM1_lPN', 'DM1_lPN_R'),
+                        (1101, 2101, 'AL(R)', 9, 'ORN_DA2', 'ORN_DA2_R', 'DA2_lPN', 'DA2_lPN_R'),
+                        (1201, 2201, 'AL(L)', 7, 'ORN_DM3', 'ORN_DM3_L', 'DM3_adPN', 'DM3_adPN_L')
+                    """
+                )
+
+            build_olfaction_cache(store=store, datasets=["hemibrain"], replace=True)
+            glomeruli = {
+                row["glomerulus"]
+                for row in olfaction_glomerulus_summary(store=store, dataset="hemibrain", limit=100)
+            }
+            rows_by_glomerulus = {
+                glomerulus: olfaction_input_summary(
+                    store=store,
+                    dataset="hemibrain",
+                    target_class="PN",
+                    source_class="ORN",
+                    glomerulus=glomerulus,
+                    by_side=True,
+                )
+                for glomerulus in glomeruli
+            }
+            output, progress = run_cli_capture(
+                "olf",
+                "--store",
+                str(store),
+                "inputs",
+                "--dataset",
+                "hemibrain",
+                "--target-class",
+                "PN",
+                "--source-class",
+                "ORN",
+                "--glomerulus",
+                "DM1",
+                "--by-side",
+                "--format",
+                "csv",
+            )
+
+        self.assertEqual(glomeruli, {"DA2", "DM1", "DM3"})
+        for glomerulus, rows in rows_by_glomerulus.items():
+            self.assertTrue(rows, f"{glomerulus} should have ORN->PN input rows")
+            self.assertTrue(
+                any(
+                    row["target_glomerulus"] == glomerulus
+                    and row["source_glomerulus"] == glomerulus
+                    and row["source_class"] == "ORN"
+                    and row["target_class"] == "PN"
+                    for row in rows
+                ),
+                f"{glomerulus} should preserve source and target glomerulus labels",
+            )
+        self.assertIn("hemibrain,2001,DM1_lPN,PN,DM1,ORN,DM1,1,12", output)
+        self.assertNotIn("compact traced-adjacency cache", progress)
+
+    @unittest.skipIf(importlib.util.find_spec("duckdb") is None, "duckdb not installed")
+    def test_olfaction_cli_filter_matrix_covers_regions_classes_and_glomeruli(self) -> None:
+        import duckdb
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Path(tmp) / "fixture.duckdb"
+            with duckdb.connect(str(store)) as connection:
+                create_olfaction_matrix_fixture(connection)
+
+            build_olfaction_cache(store=store, datasets=None, replace=True)
+            class_rows = olfaction_class_summary(store=store, limit=1000)
+            glomerulus_rows = olfaction_glomerulus_summary(store=store, limit=1000)
+            datasets = ("flywire", "hemibrain")
+
+            self.assertGreaterEqual(len(BROAD_GLOMERULI), 60)
+            for dataset in datasets:
+                regions = {
+                    row["region"]
+                    for row in class_rows
+                    if row["dataset"] == dataset and row["region"]
+                }
+                classes = {
+                    row["cell_class"]
+                    for row in class_rows
+                    if row["dataset"] == dataset and row["cell_class"]
+                }
+                region_class_pairs = {
+                    (row["region"], row["cell_class"])
+                    for row in class_rows
+                    if row["dataset"] == dataset and row["region"] and row["cell_class"]
+                }
+                glomeruli = {
+                    row["glomerulus"]
+                    for row in glomerulus_rows
+                    if row["dataset"] == dataset and row["glomerulus"]
+                }
+
+                self.assertEqual(regions, set(OLFACTION_REGIONS))
+                self.assertEqual(classes, set(CELL_CLASS_CHOICES))
+                self.assertEqual(glomeruli, set(BROAD_GLOMERULI))
+
+                for region in OLFACTION_REGIONS:
+                    assert_nonempty_cli(
+                        self,
+                        run_cli("olf", "--store", str(store), "classes", "--dataset", dataset, "--region", region, "--csv"),
+                    )
+                    assert_nonempty_cli(
+                        self,
+                        run_cli("olf", "--store", str(store), "edges", "--dataset", dataset, "--region", region, "--csv"),
+                    )
+
+                for cell_class in CELL_CLASS_CHOICES:
+                    assert_nonempty_cli(
+                        self,
+                        run_cli("olf", "--store", str(store), "classes", "--dataset", dataset, "--class", cell_class, "--csv"),
+                    )
+
+                for region, cell_class in sorted(region_class_pairs):
+                    assert_nonempty_cli(
+                        self,
+                        run_cli(
+                            "olf",
+                            "--store",
+                            str(store),
+                            "neurons",
+                            "--dataset",
+                            dataset,
+                            "--region",
+                            region,
+                            "--class",
+                            cell_class,
+                            "--csv",
+                        ),
+                    )
+
+                for glomerulus in sorted(glomeruli):
+                    self.assertTrue(
+                        olfaction_pns(store=store, dataset=dataset, glomerulus=glomerulus),
+                        f"{dataset} {glomerulus} pns should not be empty",
+                    )
+                    self.assertTrue(
+                        olfaction_input_summary(
+                            store=store,
+                            dataset=dataset,
+                            target_class="PN",
+                            source_class="ORN",
+                            glomerulus=glomerulus,
+                            by_side=True,
+                        ),
+                        f"{dataset} {glomerulus} ORN->PN inputs should not be empty",
+                    )
+                    self.assertTrue(
+                        olfaction_pathway_summary(
+                            store=store,
+                            dataset=dataset,
+                            source_class="ORN",
+                            target_class="PN",
+                            source_glomerulus=glomerulus,
+                            target_glomerulus=glomerulus,
+                            by_side=True,
+                        ),
+                        f"{dataset} {glomerulus} ORN->PN pathway should not be empty",
+                    )
+                    self.assertTrue(
+                        olfaction_orn_inputs(
+                            store=store,
+                            dataset=dataset,
+                            glomerulus=glomerulus,
+                            by_side=True,
+                        ),
+                        f"{dataset} {glomerulus} orn-inputs should not be empty",
+                    )
+
+                for glomerulus in ("DM1", "VA1d", "VP3+"):
+                    for command in (
+                        ("glomerulus", glomerulus, "--dataset", dataset, "--csv"),
+                        ("pns", "--dataset", dataset, "--glomerulus", glomerulus, "--csv"),
+                        (
+                            "inputs",
+                            "--dataset",
+                            dataset,
+                            "--target-class",
+                            "PN",
+                            "--source-class",
+                            "ORN",
+                            "--glomerulus",
+                            glomerulus,
+                            "--by-side",
+                            "--csv",
+                        ),
+                        (
+                            "pathway",
+                            "ORN",
+                            "PN",
+                            "--dataset",
+                            dataset,
+                            "--source-glomerulus",
+                            glomerulus,
+                            "--target-glomerulus",
+                            glomerulus,
+                            "--by-side",
+                            "--csv",
+                        ),
+                        ("orn-inputs", "--dataset", dataset, "--glomerulus", glomerulus, "--by-side", "--csv"),
+                    ):
+                        assert_nonempty_cli(
+                            self,
+                            run_cli("olf", "--store", str(store), *command),
+                        )
+
+                for target_class, region in (
+                    ("LHN", "LH"),
+                    ("KC", "MB"),
+                    ("MBON", "MB"),
+                    ("DAN", "MB"),
+                    ("APL", "MB"),
+                ):
+                    assert_nonempty_cli(
+                        self,
+                        run_cli(
+                            "olf",
+                            "--store",
+                            str(store),
+                            "outputs",
+                            "--dataset",
+                            dataset,
+                            "--source-class",
+                            "PN",
+                            "--target-class",
+                            target_class,
+                            "--region",
+                            region,
+                            "--by-side",
+                            "--csv",
+                        ),
+                    )
+
+    @unittest.skipIf(importlib.util.find_spec("duckdb") is None, "duckdb not installed")
     def test_olfaction_build_skips_current_cache(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = Path(tmp) / "fixture.duckdb"
@@ -1291,6 +1589,153 @@ class CliTest(unittest.TestCase):
         self.assertTrue(
             any(row["table"] == "olf_neurons" and row["status"] == "current" for row in second)
         )
+
+    @unittest.skipIf(importlib.util.find_spec("duckdb") is None, "duckdb not installed")
+    def test_olfaction_full_build_rebuilds_after_subset_cache(self) -> None:
+        import duckdb
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Path(tmp) / "fixture.duckdb"
+            for path, table in [
+                ("tests/fixtures/bulk/flywire_olf_connections.csv", "flywire_proofread_connections"),
+                ("tests/fixtures/bulk/hemibrain_neurons.csv", "hemibrain_traced_neurons"),
+                ("tests/fixtures/bulk/flywire_hierarchical.csv", "flywire_hierarchical_neuron_annotations"),
+                ("tests/fixtures/bulk/flywire_neuron_info.csv", "flywire_neuron_information_v2"),
+            ]:
+                import_to_duckdb(Path(path), table, store=store, replace=True)
+            with duckdb.connect(str(store)) as connection:
+                connection.execute(
+                    """
+                    CREATE TABLE hemibrain_traced_roi_connections(
+                        bodyId_pre BIGINT,
+                        bodyId_post BIGINT,
+                        roi VARCHAR,
+                        weight BIGINT
+                    )
+                    """
+                )
+                connection.execute(
+                    """
+                    INSERT INTO hemibrain_traced_roi_connections VALUES
+                        (1001, 2001, 'AL(R)', 11)
+                    """
+                )
+
+            build_olfaction_cache(store=store, datasets=None, replace=True, skip_current=True)
+            build_olfaction_cache(store=store, datasets=["flywire"], replace=True, skip_current=True)
+            rebuilt = build_olfaction_cache(store=store, datasets=None, replace=True, skip_current=True)
+
+            with duckdb.connect(str(store), read_only=True) as connection:
+                datasets = {
+                    row[0]
+                    for row in connection.execute(
+                        "SELECT DISTINCT dataset FROM olf_provenance"
+                    ).fetchall()
+                }
+
+        self.assertEqual(datasets, {"flywire", "hemibrain"})
+        self.assertTrue(
+            any(row["table"] == "olf_neurons" and row["status"] == "built" for row in rebuilt)
+        )
+
+    @unittest.skipIf(importlib.util.find_spec("duckdb") is None, "duckdb not installed")
+    def test_olfaction_query_rebuilds_stale_flywire_annotations(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Path(tmp) / "fixture.duckdb"
+            import_to_duckdb(
+                Path("tests/fixtures/bulk/flywire_olf_connections.csv"),
+                "flywire_proofread_connections",
+                store=store,
+                replace=True,
+            )
+            build_olfaction_cache(store=store, datasets=["flywire"], replace=True)
+            for path, table in [
+                ("tests/fixtures/bulk/flywire_hierarchical.csv", "flywire_hierarchical_neuron_annotations"),
+                ("tests/fixtures/bulk/flywire_neuron_info.csv", "flywire_neuron_information_v2"),
+            ]:
+                import_to_duckdb(Path(path), table, store=store, replace=True)
+
+            output, progress = run_cli_capture(
+                "olf",
+                "--store",
+                str(store),
+                "inputs",
+                "--dataset",
+                "flywire",
+                "--target-class",
+                "PN",
+                "--source-class",
+                "ORN",
+                "--glomerulus",
+                "DM1",
+                "--by-side",
+                "--format",
+                "csv",
+            )
+
+        self.assertIn("rebuilt stale derived annotation tables", progress)
+        self.assertIn("flywire,2001,DM1_lPN_R,PN,DM1,ORN,DM1,1,12", output)
+
+    @unittest.skipIf(importlib.util.find_spec("duckdb") is None, "duckdb not installed")
+    def test_olfaction_warns_when_hemibrain_compact_cache_lacks_orn_glomerulus(self) -> None:
+        import duckdb
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Path(tmp) / "fixture.duckdb"
+            with duckdb.connect(str(store)) as connection:
+                connection.execute(
+                    """
+                    CREATE TABLE hemibrain_traced_roi_connections(
+                        bodyId_pre BIGINT,
+                        bodyId_post BIGINT,
+                        roi VARCHAR,
+                        weight BIGINT
+                    )
+                    """
+                )
+                connection.execute(
+                    """
+                    INSERT INTO hemibrain_traced_roi_connections VALUES
+                        (3001, 2001, 'AL(R)', 8)
+                    """
+                )
+                connection.execute(
+                    """
+                    CREATE TABLE hemibrain_traced_neurons(
+                        bodyId BIGINT,
+                        type VARCHAR,
+                        instance VARCHAR
+                    )
+                    """
+                )
+                connection.execute(
+                    """
+                    INSERT INTO hemibrain_traced_neurons VALUES
+                        (2001, 'DM1_lPN', 'DM1_lPN_R'),
+                        (3001, 'lLN1', 'lLN1_R')
+                    """
+                )
+            build_olfaction_cache(store=store, datasets=["hemibrain"], replace=True)
+
+            output, progress = run_cli_capture(
+                "olf",
+                "--store",
+                str(store),
+                "inputs",
+                "--dataset",
+                "hemibrain",
+                "--target-class",
+                "PN",
+                "--source-class",
+                "ORN",
+                "--glomerulus",
+                "DM1",
+                "--format",
+                "json",
+            )
+
+        self.assertEqual(output.strip(), "[]")
+        self.assertIn("no hemibrain ORN rows in compact traced-adjacency cache", progress)
 
     @unittest.skipIf(importlib.util.find_spec("duckdb") is None, "duckdb not installed")
     def test_olfaction_build_rebuilds_incomplete_current_cache(self) -> None:
@@ -1380,6 +1825,209 @@ def run_cli(*args: str) -> str:
     return run_cli_capture(*args)[0]
 
 
+BROAD_GLOMERULI = (
+    "D",
+    "DA1",
+    "DA2",
+    "DA3",
+    "DA4l",
+    "DA4m",
+    "DC1",
+    "DC2",
+    "DC3",
+    "DC4",
+    "DL1",
+    "DL2d",
+    "DL2v",
+    "DL3",
+    "DL4",
+    "DL5",
+    "DM1",
+    "DM2",
+    "DM3",
+    "DM4",
+    "DM5",
+    "DM6",
+    "DP1l",
+    "DP1m",
+    "M",
+    "V",
+    "VA1d",
+    "VA1v",
+    "VA2",
+    "VA3",
+    "VA4",
+    "VA5",
+    "VA6",
+    "VA7l",
+    "VA7m",
+    "VC1",
+    "VC2",
+    "VC3",
+    "VC4",
+    "VC5",
+    "VL1",
+    "VL2a",
+    "VL2p",
+    "VM1",
+    "VM2",
+    "VM3",
+    "VM4",
+    "VM5d",
+    "VM5v",
+    "VM6",
+    "VM7d",
+    "VM7v",
+    "VP1d",
+    "VP1l",
+    "VP1m",
+    "VP2",
+    "VP2+",
+    "VP3+",
+    "VP4",
+    "VP4+",
+    "VP5+",
+)
+
+
+def create_olfaction_matrix_fixture(connection) -> None:
+    flywire_edges = []
+    flywire_annotations = []
+    hemibrain_edges = []
+    hemibrain_neurons = []
+    hemibrain_orn_pn_edges = []
+    for index, glomerulus in enumerate(BROAD_GLOMERULI):
+        flywire_orn = 100000 + index
+        flywire_pn = 200000 + index
+        hemibrain_orn = 300000 + index
+        hemibrain_pn = 400000 + index
+        side = "R" if index % 2 == 0 else "L"
+        pn_suffix = ("lPN", "adPN", "vPN")[index % 3]
+        flywire_edges.append((flywire_orn, flywire_pn, f"AL_{side}", 10 + index % 7))
+        flywire_annotations.extend(
+            [
+                (flywire_orn, "cell_type", f"ORN_{glomerulus}_{side}"),
+                (flywire_pn, "cell_type", f"{glomerulus}_{pn_suffix}_{side}"),
+            ]
+        )
+        hemibrain_orn_pn_edges.append(
+            (
+                hemibrain_orn,
+                hemibrain_pn,
+                f"AL({side})",
+                10 + index % 7,
+                f"ORN_{glomerulus}",
+                f"ORN_{glomerulus}_{side}",
+                f"{glomerulus}_{pn_suffix}",
+                f"{glomerulus}_{pn_suffix}_{side}",
+            )
+        )
+
+    first_flywire_pn = 200000
+    first_hemibrain_pn = 400000
+    flywire_edges.extend(
+        [
+            (900001, first_flywire_pn, "AL_R", 3),
+            (first_flywire_pn, 900002, "LH_R", 11),
+            (first_flywire_pn, 900003, "MB_CA_R", 13),
+            (first_flywire_pn, 900004, "MB_CA_R", 6),
+            (first_flywire_pn, 900005, "MB_PED_R", 5),
+            (first_flywire_pn, 900006, "MB_CA_R", 4),
+        ]
+    )
+    flywire_annotations.extend(
+        [
+            (900001, "cell_type", "lLN1_R"),
+            (900002, "cell_type", "LHCENT12_R"),
+            (900003, "cell_type", "KCg_R"),
+            (900004, "cell_type", "MBON01_R"),
+            (900005, "cell_type", "PAM01_R"),
+            (900006, "cell_type", "APL_R"),
+        ]
+    )
+    hemibrain_edges.extend(
+        [
+            (910001, first_hemibrain_pn, "AL(R)", 3),
+            (first_hemibrain_pn, 910002, "LH(R)", 11),
+            (first_hemibrain_pn, 910003, "CA(R)", 13),
+            (first_hemibrain_pn, 910004, "CA(R)", 6),
+            (first_hemibrain_pn, 910005, "PED(R)", 5),
+            (first_hemibrain_pn, 910006, "CA(R)", 4),
+        ]
+    )
+    hemibrain_neurons.extend(
+        [
+            (910001, "lLN1", "lLN1_R"),
+            (910002, "LHCENT12", "LHCENT12_R"),
+            (910003, "KCg", "KCg_R"),
+            (910004, "MBON01", "MBON01_R"),
+            (910005, "PAM01", "PAM01_R"),
+            (910006, "APL", "APL_R"),
+        ]
+    )
+
+    connection.execute(
+        """
+        CREATE TABLE flywire_proofread_connections(
+            pre_pt_root_id BIGINT,
+            post_pt_root_id BIGINT,
+            neuropil VARCHAR,
+            syn_count BIGINT
+        )
+        """
+    )
+    connection.executemany("INSERT INTO flywire_proofread_connections VALUES (?, ?, ?, ?)", flywire_edges)
+    connection.execute(
+        """
+        CREATE TABLE flywire_hierarchical_neuron_annotations(
+            pt_root_id BIGINT,
+            classification_system VARCHAR,
+            cell_type VARCHAR
+        )
+        """
+    )
+    connection.executemany("INSERT INTO flywire_hierarchical_neuron_annotations VALUES (?, ?, ?)", flywire_annotations)
+    connection.execute(
+        """
+        CREATE TABLE hemibrain_traced_roi_connections(
+            bodyId_pre BIGINT,
+            bodyId_post BIGINT,
+            roi VARCHAR,
+            weight BIGINT
+        )
+        """
+    )
+    connection.executemany("INSERT INTO hemibrain_traced_roi_connections VALUES (?, ?, ?, ?)", hemibrain_edges)
+    connection.execute(
+        """
+        CREATE TABLE hemibrain_traced_neurons(
+            bodyId BIGINT,
+            type VARCHAR,
+            instance VARCHAR
+        )
+        """
+    )
+    connection.executemany("INSERT INTO hemibrain_traced_neurons VALUES (?, ?, ?)", hemibrain_neurons)
+    connection.execute(
+        f"""
+        CREATE TABLE {HEMIBRAIN_OLFACTION_ORN_PN_TABLE}(
+            bodyId_pre BIGINT,
+            bodyId_post BIGINT,
+            roi VARCHAR,
+            weight BIGINT,
+            pre_type VARCHAR,
+            pre_instance VARCHAR,
+            post_type VARCHAR,
+            post_instance VARCHAR
+        )
+        """
+    )
+    connection.executemany(
+        f"INSERT INTO {HEMIBRAIN_OLFACTION_ORN_PN_TABLE} VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        hemibrain_orn_pn_edges,
+    )
+
+
 def run_cli_capture(*args: str) -> tuple[str, str]:
     output = StringIO()
     progress = StringIO()
@@ -1393,6 +2041,11 @@ def run_cli_capture(*args: str) -> tuple[str, str]:
     if result != 0:
         raise AssertionError(f"CLI exited with {result}")
     return output.getvalue(), progress.getvalue()
+
+
+def assert_nonempty_cli(test: unittest.TestCase, output: str) -> None:
+    rows = [line for line in output.splitlines() if line.strip()]
+    test.assertGreater(len(rows), 1, output)
 
 
 def write_csv(path: Path, rows: list[dict[str, str]]) -> None:

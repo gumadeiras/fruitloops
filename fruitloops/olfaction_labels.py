@@ -32,8 +32,14 @@ def sql_glomerulus(expression: str) -> str:
         THEN regexp_extract({expression}, 'ORN_([^_;, ]+)', 1)
         WHEN regexp_extract({expression}, '(^|[ ;,])([^_;, ]+)_ORN', 2) != ''
         THEN regexp_extract({expression}, '(^|[ ;,])([^_;, ]+)_ORN', 2)
-        WHEN regexp_extract({expression}, '(^|[ ;,])([^_;, ]+)_[lvm]?PN', 2) != ''
-        THEN regexp_extract({expression}, '(^|[ ;,])([^_;, ]+)_[lvm]?PN', 2)
+        WHEN regexp_extract({expression}, '(^|[ ;,])([^_;,/ ]+)[ ]*/[^;,]*ORN', 2) != ''
+        THEN regexp_extract({expression}, '(^|[ ;,])([^_;,/ ]+)[ ]*/[^;,]*ORN', 2)
+        WHEN regexp_extract({expression}, 'sensory,([^,;]+),ORN', 1) != ''
+        THEN regexp_extract({expression}, 'sensory,([^,;]+),ORN', 1)
+        WHEN regexp_extract({expression}, 'sensory,ORN,([^,;]+)', 1) != ''
+        THEN regexp_extract({expression}, 'sensory,ORN,([^,;]+)', 1)
+        WHEN regexp_extract({expression}, '(^|[ ;,])([^_;, ]+)_[A-Za-z0-9]*PN', 2) != ''
+        THEN regexp_extract({expression}, '(^|[ ;,])([^_;, ]+)_[A-Za-z0-9]*PN', 2)
         WHEN regexp_extract({expression}, 'PN_([^_;, ]+)', 1) != ''
         THEN regexp_extract({expression}, 'PN_([^_;, ]+)', 1)
         ELSE ''
@@ -94,6 +100,9 @@ def has_class_token(text: str, token: str) -> bool:
 
 def infer_glomerulus(value: str | None) -> str:
     text = (value or "").replace(";", " ")
+    slash_match = re.search(r"(^|[ ;,])([^_;,/ ]+)\s*/[^;,]*ORN", text, re.IGNORECASE)
+    if slash_match:
+        return slash_match.group(2)
     for token in text.replace(",", " ").split():
         cleaned = token.strip("()[]{}")
         upper = cleaned.upper()
@@ -101,10 +110,16 @@ def infer_glomerulus(value: str | None) -> str:
             return cleaned.split("_", 1)[1]
         if upper.endswith("_ORN"):
             return cleaned.rsplit("_", 1)[0]
-        if "_LPN" in upper or "_VPN" in upper or "_MPN" in upper:
+        if re.search(r"_[A-Z0-9]*PN", upper):
             return cleaned.split("_", 1)[0]
         if upper.startswith("PN_"):
             return cleaned.split("_", 1)[1]
+    match = re.search(r"(^|[ ;,])sensory,([^,;]+),ORN([^A-Z0-9]|$)", text, re.IGNORECASE)
+    if match:
+        return match.group(2)
+    match = re.search(r"(^|[ ;,])sensory,ORN,([^,;]+)([^A-Z0-9]|$)", text, re.IGNORECASE)
+    if match:
+        return match.group(2)
     return ""
 
 

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 from .bulk import DEFAULT_DUCKDB_PATH
-from .cli_helpers import add_dataset_arg, add_format_arg, unique_values
+from .cli_helpers import add_dataset_arg, add_dataset_filter_arg, add_format_arg, unique_values
 from .formatting import emit_rows
 from .olfaction import (
     build_olfaction_cache,
@@ -19,6 +20,7 @@ from .olfaction import (
     olfaction_pns,
     olfaction_tables,
 )
+from .olfaction_freshness import ensure_olfaction_annotations_applied
 from .olfaction_live import cache_olfaction_annotations
 
 
@@ -38,7 +40,7 @@ def add_olfaction_parser(subparsers, *, name: str = "olfaction", hidden: bool = 
         "build",
         help="Build derived olfaction tables from imported bulk connectivity.",
     )
-    olf_build.add_argument("--dataset", choices=("hemibrain", "flywire"), action="append")
+    add_dataset_filter_arg(olf_build, ("hemibrain", "flywire"))
     olf_build.add_argument("--keep-existing", action="store_true")
     add_format_arg(olf_build)
     olf_build.set_defaults(func=cmd_olfaction_build)
@@ -47,7 +49,7 @@ def add_olfaction_parser(subparsers, *, name: str = "olfaction", hidden: bool = 
         "cache-annotations",
         help="Fetch AL/LH/MB neuron annotations once and save them into DuckDB.",
     )
-    olf_cache.add_argument("--dataset", choices=("hemibrain", "flywire"), action="append")
+    add_dataset_filter_arg(olf_cache, ("hemibrain", "flywire"))
     olf_cache.add_argument("--chunk-size", type=int, default=2000)
     olf_cache.add_argument("--no-rebuild", action="store_true")
     add_format_arg(olf_cache)
@@ -182,6 +184,7 @@ def cmd_olfaction_tables(args: argparse.Namespace, data) -> int:
 
 
 def cmd_olfaction_neurons(args: argparse.Namespace, data) -> int:
+    ensure_query_annotations(args)
     rows = olfaction_neurons(
         store=args.store,
         dataset=args.dataset,
@@ -196,6 +199,7 @@ def cmd_olfaction_neurons(args: argparse.Namespace, data) -> int:
 
 
 def cmd_olfaction_classes(args: argparse.Namespace, data) -> int:
+    ensure_query_annotations(args)
     rows = olfaction_class_summary(
         store=args.store,
         dataset=args.dataset,
@@ -209,6 +213,7 @@ def cmd_olfaction_classes(args: argparse.Namespace, data) -> int:
 
 
 def cmd_olfaction_glomerulus(args: argparse.Namespace, data) -> int:
+    ensure_query_annotations(args)
     rows = olfaction_glomerulus_summary(
         store=args.store,
         dataset=args.dataset,
@@ -220,6 +225,7 @@ def cmd_olfaction_glomerulus(args: argparse.Namespace, data) -> int:
 
 
 def cmd_olfaction_pathway(args: argparse.Namespace, data) -> int:
+    ensure_query_annotations(args)
     rows = olfaction_pathway_summary(
         store=args.store,
         dataset=args.dataset,
@@ -237,6 +243,7 @@ def cmd_olfaction_pathway(args: argparse.Namespace, data) -> int:
 
 
 def cmd_olfaction_inputs(args: argparse.Namespace, data) -> int:
+    ensure_query_annotations(args)
     rows = olfaction_input_summary(
         store=args.store,
         dataset=args.dataset,
@@ -248,11 +255,13 @@ def cmd_olfaction_inputs(args: argparse.Namespace, data) -> int:
         by_side=args.by_side,
         limit=args.limit,
     )
+    warn_hemibrain_compact_orn_gap(args, rows)
     emit_dynamic_rows(rows, args.format)
     return 0
 
 
 def cmd_olfaction_outputs(args: argparse.Namespace, data) -> int:
+    ensure_query_annotations(args)
     rows = olfaction_output_summary(
         store=args.store,
         dataset=args.dataset,
@@ -283,6 +292,7 @@ def cmd_olfaction_edges(args: argparse.Namespace, data) -> int:
 
 
 def cmd_olfaction_pns(args: argparse.Namespace, data) -> int:
+    ensure_query_annotations(args)
     rows = olfaction_pns(
         store=args.store,
         dataset=args.dataset,
@@ -294,6 +304,7 @@ def cmd_olfaction_pns(args: argparse.Namespace, data) -> int:
 
 
 def cmd_olfaction_orn_inputs(args: argparse.Namespace, data) -> int:
+    ensure_query_annotations(args)
     rows = olfaction_orn_inputs(
         store=args.store,
         dataset=args.dataset,
@@ -304,6 +315,28 @@ def cmd_olfaction_orn_inputs(args: argparse.Namespace, data) -> int:
     )
     emit_dynamic_rows(rows, args.format)
     return 0
+
+
+def ensure_query_annotations(args: argparse.Namespace) -> None:
+    dataset = getattr(args, "dataset", None)
+    datasets = [dataset] if dataset else None
+    if ensure_olfaction_annotations_applied(store=args.store, datasets=datasets):
+        print("fruitloops olf: rebuilt stale derived annotation tables", file=sys.stderr)
+
+
+def warn_hemibrain_compact_orn_gap(args: argparse.Namespace, rows: list[dict[str, str]]) -> None:
+    if rows:
+        return
+    if getattr(args, "dataset", None) != "hemibrain":
+        return
+    if getattr(args, "source_class", None) != "ORN":
+        return
+    print(
+        "fruitloops olf: no hemibrain ORN rows in compact traced-adjacency cache; "
+        "most hemibrain ORNs are cropped in neuPrint. Run "
+        "`fruitloops olf cache-annotations --hemibrain` to cache full ORN->PN edges",
+        file=sys.stderr,
+    )
 
 
 def emit_dynamic_rows(rows: list[dict[str, str]], fmt: str) -> None:

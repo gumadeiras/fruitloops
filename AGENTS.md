@@ -128,14 +128,26 @@ python3 -m fruitloops admin offline fetch \
 Then reuse without network:
 
 ```bash
-python3 -m fruitloops admin offline fetch ... --offline-only
+python3 -m fruitloops admin offline fetch \
+  --dataset flywire \
+  --action synapses \
+  --pre-root-id 720575940623636701 \
+  --limit 10 \
+  --format csv \
+  --offline-only
 python3 -m fruitloops admin offline list
 ```
 
 Force update:
 
 ```bash
-python3 -m fruitloops admin offline fetch ... --refresh
+python3 -m fruitloops admin offline fetch \
+  --dataset flywire \
+  --action synapses \
+  --pre-root-id 720575940623636701 \
+  --limit 10 \
+  --format csv \
+  --refresh
 ```
 
 ## Bulk Offline Releases
@@ -152,9 +164,9 @@ python3 -m fruitloops admin bulk import \
   --replace
 python3 -m fruitloops admin bulk optimize --table flywire_proofread_connections --prefix flywire
 python3 -m fruitloops admin bulk query --table flywire_proofread_connections --limit 10 --format csv
-python3 -m fruitloops admin bulk inputs --table flywire_proofread_connections --body-id ROOT --format csv
-python3 -m fruitloops admin bulk outputs --table flywire_proofread_connections --body-id ROOT --format csv
-python3 -m fruitloops admin bulk partners --table flywire_proofread_connections --body-id ROOT --format json
+python3 -m fruitloops admin bulk inputs --table flywire_proofread_connections --body-id 720575940623636701 --format csv
+python3 -m fruitloops admin bulk outputs --table flywire_proofread_connections --body-id 720575940623636701 --format csv
+python3 -m fruitloops admin bulk partners --table flywire_proofread_connections --body-id 720575940623636701 --format json
 ```
 
 Hemibrain compact setup:
@@ -190,10 +202,10 @@ Use live APIs only when local snapshot/cache lacks the answer.
 
 ```bash
 python3 -m fruitloops admin live flywire tables --format csv
-python3 -m fruitloops admin live flywire synapses --pre-root-id ROOT --limit 10 --format json
+python3 -m fruitloops admin live flywire synapses --pre-root-id 720575940623636701 --limit 10 --format json
 
 python3 -m fruitloops admin live hemibrain neurons --type-contains il3LN6 --limit 5 --format csv
-python3 -m fruitloops admin live hemibrain connections --upstream-body-id BODY --limit 20 --format json
+python3 -m fruitloops admin live hemibrain connections --upstream-body-id 5813018460 --limit 20 --format json
 ```
 
 ## Plotting

@@ -10,6 +10,7 @@ from .olfaction import (
     FLYWIRE_NEURON_INFO_TABLE,
     FLYWIRE_PROOFREAD_NEURON_TABLE,
     HEMIBRAIN_OLFACTION_ANNOTATION_TABLE,
+    HEMIBRAIN_OLFACTION_ORN_PN_TABLE,
     OLFACTION_PREFIX,
     build_olfaction_cache,
     table_exists,
@@ -34,7 +35,7 @@ def cache_olfaction_annotations(
         rows = []
         if "hemibrain" in selected:
             try:
-                rows.append(cache_hemibrain_annotations(connection, store, chunk_size, prefix))
+                rows.extend(cache_hemibrain_annotations(connection, store, chunk_size, prefix))
             except (Exception, SystemExit) as exc:
                 rows.append(
                     annotation_error_row(
@@ -54,10 +55,11 @@ def cache_olfaction_annotations(
     return rows
 
 
-def cache_hemibrain_annotations(connection, store: Path, chunk_size: int, prefix: str) -> dict[str, str]:
+def cache_hemibrain_annotations(connection, store: Path, chunk_size: int, prefix: str) -> list[dict[str, str]]:
     from .live import fetch_hemibrain_custom, hemibrain_client
 
     client = hemibrain_client()
+    orn_pn_rows = cache_hemibrain_orn_pn_connections(connection, client, store)
     ids = olfaction_body_ids(connection, prefix, "hemibrain")
     frames = []
     for chunk in chunks(ids, chunk_size):
@@ -70,7 +72,61 @@ def cache_hemibrain_annotations(connection, store: Path, chunk_size: int, prefix
         """
         frames.append(fetch_hemibrain_custom(client, query))
     rows = replace_table_from_frames(connection, HEMIBRAIN_OLFACTION_ANNOTATION_TABLE, frames)
-    return annotation_row("hemibrain", HEMIBRAIN_OLFACTION_ANNOTATION_TABLE, rows, store)
+    return [
+        orn_pn_rows,
+        annotation_row("hemibrain", HEMIBRAIN_OLFACTION_ANNOTATION_TABLE, rows, store),
+    ]
+
+
+def cache_hemibrain_orn_pn_connections(connection, client, store: Path) -> dict[str, str]:
+    from .live import fetch_hemibrain_custom
+
+    query = """
+    MATCH (orn:Neuron)-[w:ConnectsTo]->(pn:Neuron)
+    WHERE orn.type STARTS WITH 'ORN_'
+      AND pn.type CONTAINS 'PN'
+      AND w.weight > 0
+    RETURN orn.bodyId AS bodyId_pre,
+           pn.bodyId AS bodyId_post,
+           orn.type AS pre_type,
+           orn.instance AS pre_instance,
+           pn.type AS post_type,
+           pn.instance AS post_instance,
+           w.weight AS weight
+    ORDER BY pn.type, orn.type, w.weight DESC
+    """
+    frame = add_hemibrain_orn_pn_roi(fetch_hemibrain_custom(client, query))
+    rows = replace_table_from_frames(connection, HEMIBRAIN_OLFACTION_ORN_PN_TABLE, [frame])
+    return annotation_row("hemibrain", HEMIBRAIN_OLFACTION_ORN_PN_TABLE, rows, store)
+
+
+def add_hemibrain_orn_pn_roi(frame):
+    if frame is None or len(frame) == 0:
+        return frame
+    frame = frame.copy()
+    labels = []
+    for _, row in frame.iterrows():
+        label = str(row.get("post_instance") or row.get("post_type") or row.get("pre_instance") or "")
+        upper = label.upper()
+        if upper.endswith("_L"):
+            labels.append("AL(L)")
+        elif upper.endswith("_R"):
+            labels.append("AL(R)")
+        else:
+            labels.append("AL")
+    frame["roi"] = labels
+    return frame[
+        [
+            "bodyId_pre",
+            "bodyId_post",
+            "roi",
+            "weight",
+            "pre_type",
+            "pre_instance",
+            "post_type",
+            "post_instance",
+        ]
+    ]
 
 
 def cache_flywire_annotations(connection, store: Path, chunk_size: int, prefix: str) -> list[dict[str, str]]:
@@ -188,6 +244,11 @@ def replace_table_from_frames(connection, table: str, frames: list[object]) -> i
 def create_empty_annotation_table(connection, table: str) -> None:
     if table == HEMIBRAIN_OLFACTION_ANNOTATION_TABLE:
         schema = "bodyId BIGINT, type VARCHAR, instance VARCHAR, status VARCHAR, cropped BOOLEAN, size BIGINT"
+    elif table == HEMIBRAIN_OLFACTION_ORN_PN_TABLE:
+        schema = (
+            "bodyId_pre BIGINT, bodyId_post BIGINT, roi VARCHAR, weight BIGINT, "
+            "pre_type VARCHAR, pre_instance VARCHAR, post_type VARCHAR, post_instance VARCHAR"
+        )
     elif table == FLYWIRE_HIERARCHICAL_TABLE:
         schema = "pt_root_id BIGINT, classification_system VARCHAR, cell_type VARCHAR"
     elif table == FLYWIRE_NEURON_INFO_TABLE:
