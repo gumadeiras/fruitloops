@@ -24,6 +24,8 @@ and FlyWire. Prefer local data before live APIs.
 - Run `python3 -m fruitloops setup` to create cache dirs, import practical bulk tables, and build olfaction tables.
 - For large live/API results, use `admin offline fetch` so results are cached.
 - If data is missing locally, fetch once, cache it, then reuse cache.
+- Persistent bulk/DuckDB state uses OS application data; live-query responses
+  use the OS cache directory unless explicitly overridden.
 - For broad connectivity, use `admin bulk` DuckDB tables before live APIs.
 
 ## Local Snapshot
@@ -156,10 +158,10 @@ For broad connectivity, prefer public bulk releases over live APIs.
 
 ```bash
 python3 -m fruitloops admin bulk sources
-python3 -m fruitloops admin bulk download --dataset flywire --kind proofread-connections
+flywire_path=$(python3 -m fruitloops admin bulk download --dataset flywire --kind proofread-connections)
 python3 -m pip install -e .
 python3 -m fruitloops admin bulk import \
-  --path bulk/raw/flywire/proofread_connections_783.feather \
+  --path "$flywire_path" \
   --table flywire_proofread_connections \
   --replace
 python3 -m fruitloops admin bulk optimize --table flywire_proofread_connections --prefix flywire
@@ -172,10 +174,10 @@ python3 -m fruitloops admin bulk partners --table flywire_proofread_connections 
 Hemibrain compact setup:
 
 ```bash
-python3 -m fruitloops admin bulk download --dataset hemibrain --kind compact-adjacencies
-python3 -m fruitloops admin bulk extract --path bulk/raw/hemibrain/exported-traced-adjacencies-v1.2.tar.gz
+hemibrain_path=$(python3 -m fruitloops admin bulk download --dataset hemibrain --kind compact-adjacencies)
+python3 -m fruitloops admin bulk extract --path "$hemibrain_path"
 python3 -m fruitloops admin bulk import \
-  --path bulk/extracted/exported-traced-adjacencies-v1.2/traced-roi-connections.csv \
+  --path "$(python3 -m fruitloops status --csv | awk -F, '$2=="bulk_dir"{print $4}')/extracted/exported-traced-adjacencies-v1.2/traced-roi-connections.csv" \
   --table hemibrain_traced_roi_connections \
   --replace
 python3 -m fruitloops admin bulk optimize --table hemibrain_traced_roi_connections --prefix hemibrain

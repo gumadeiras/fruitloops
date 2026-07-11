@@ -169,6 +169,11 @@ paths with:
 fruitloops status
 ```
 
+Bulk downloads and DuckDB state use the OS application-data directory. Live
+query responses use the OS cache directory. On macOS these are
+`~/Library/Application Support/fruitloops` and `~/Library/Caches/fruitloops`;
+Linux uses XDG data/cache roots; Windows uses `%LOCALAPPDATA%\fruitloops`.
+
 Path overrides:
 
 - `FRUITLOOPS_DATA_DIR`: generated CSV snapshot directory with `manifest.csv`

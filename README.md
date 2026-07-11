@@ -95,6 +95,10 @@ fruitloops status
 Full install/setup details, flags, credentials, paths, bulk imports, and live
 cache behavior are documented in [docs/setup.md](docs/setup.md).
 
+Persistent bulk data and DuckDB state use the OS application-data directory;
+disposable live-query results use the OS cache directory. `fruitloops status`
+prints the active paths.
+
 ## Table References
 
 Tables can be referenced as:

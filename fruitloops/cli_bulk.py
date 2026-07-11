@@ -4,8 +4,6 @@ import argparse
 from pathlib import Path
 
 from .bulk import (
-    DEFAULT_BULK_DIR,
-    DEFAULT_DUCKDB_PATH,
     archive_stem,
     connection_rows,
     create_common_views,
@@ -28,8 +26,8 @@ from .formatting import emit_rows
 def add_bulk_parser(subparsers, *, hidden: bool = False) -> None:
     help_text = argparse.SUPPRESS if hidden else "Download/import/query bulk offline releases."
     bulk = subparsers.add_parser("bulk", help=help_text)
-    bulk.add_argument("--bulk-dir", type=Path, default=DEFAULT_BULK_DIR)
-    bulk.add_argument("--store", type=Path, default=DEFAULT_DUCKDB_PATH)
+    bulk.add_argument("--bulk-dir", type=Path)
+    bulk.add_argument("--store", type=Path)
     bulk_subparsers = bulk.add_subparsers(dest="bulk_action", required=True)
 
     bulk_sources = bulk_subparsers.add_parser("sources", help="List known bulk data sources.")

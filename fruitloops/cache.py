@@ -109,7 +109,7 @@ def write_metadata(
         "query": query,
     }
     metadata_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
-    return metadata_to_entry(payload, metadata_path)
+    return metadata_to_entry(payload, metadata_path, data_path)
 
 
 def read_metadata(metadata_path: Path, data_path: Path, key: str) -> CacheEntry | None:
@@ -117,16 +117,17 @@ def read_metadata(metadata_path: Path, data_path: Path, key: str) -> CacheEntry 
         return None
     payload = json.loads(metadata_path.read_text())
     payload.setdefault("key", key)
-    payload.setdefault("path", str(data_path))
-    return metadata_to_entry(payload, metadata_path)
+    return metadata_to_entry(payload, metadata_path, data_path)
 
 
-def metadata_to_entry(payload: dict[str, object], metadata_path: Path) -> CacheEntry:
+def metadata_to_entry(
+    payload: dict[str, object], metadata_path: Path, data_path: Path
+) -> CacheEntry:
     return CacheEntry(
         key=str(payload["key"]),
         dataset=str(payload["dataset"]),
         action=str(payload["action"]),
-        path=Path(str(payload["path"])),
+        path=data_path,
         metadata_path=metadata_path,
         rows=int(payload["rows"]),
         created_at=str(payload["created_at"]),
@@ -139,7 +140,9 @@ def list_cache(cache_dir: Path) -> list[CacheEntry]:
     for metadata_path in sorted(cache_dir.rglob("*.json")):
         try:
             payload = json.loads(metadata_path.read_text())
-            entries.append(metadata_to_entry(payload, metadata_path))
+            entries.append(
+                metadata_to_entry(payload, metadata_path, metadata_path.with_suffix(".csv"))
+            )
         except Exception:
             continue
     return entries

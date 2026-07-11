@@ -5,8 +5,7 @@ import sys
 from pathlib import Path
 from typing import TextIO
 
-from .bulk import DEFAULT_BULK_DIR, DEFAULT_DUCKDB_PATH, setup_practical_bulk
-from .cache import DEFAULT_CACHE_DIR
+from .bulk import setup_practical_bulk
 from .cli_helpers import add_dataset_filter_arg, add_format_arg, unique_values
 from .data import FruitloopsData
 from .formatting import emit_rows
@@ -16,9 +15,9 @@ from .olfaction_live import annotation_error_row, cache_olfaction_annotations
 
 def add_setup_parser(subparsers) -> None:
     setup = subparsers.add_parser("setup", help="Download and build local offline data stores.")
-    setup.add_argument("--bulk-dir", type=Path, default=DEFAULT_BULK_DIR)
-    setup.add_argument("--store", type=Path, default=DEFAULT_DUCKDB_PATH)
-    setup.add_argument("--cache-dir", type=Path, default=DEFAULT_CACHE_DIR)
+    setup.add_argument("--bulk-dir", type=Path)
+    setup.add_argument("--store", type=Path)
+    setup.add_argument("--cache-dir", type=Path)
     add_dataset_filter_arg(setup, ("hemibrain", "flywire"))
     setup.add_argument("--replace", action=argparse.BooleanOptionalAction, default=True)
     setup.add_argument(

@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Fixes
+
+- Applied Fruitloops storage path overrides loaded through `--env-file` before
+  resolving CLI defaults.
+
+### Changes
+
+- Moved downloaded bulk data and DuckDB state to the operating system's
+  application-data directory, and live-query responses to its cache directory,
+  instead of using checkout-local or Unix-only defaults.
+
 ## 0.1.10 - 2026-05-15
 
 ### Features

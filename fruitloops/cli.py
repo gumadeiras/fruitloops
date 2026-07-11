@@ -5,7 +5,7 @@ import csv
 from pathlib import Path
 
 from . import __version__
-from .cache import DEFAULT_CACHE_DIR, get_or_fetch, list_cache
+from .cache import get_or_fetch, list_cache
 from .cli_helpers import (
     add_dataset_arg,
     add_format_arg,
@@ -33,6 +33,7 @@ from .live import (
 )
 from .cli_olfaction import add_olfaction_parser
 from .plotting import PlotSpec, render_plot
+from .paths import default_bulk_dir, default_duckdb_path, default_live_cache_dir
 
 
 class HelpOnMissingArgsParser(argparse.ArgumentParser):
@@ -198,7 +199,7 @@ def main(argv: list[str] | None = None) -> int:
     fw_synapses.set_defaults(func=cmd_live_flywire_synapses)
 
     offline = subparsers.add_parser("offline", help=argparse.SUPPRESS)
-    offline.add_argument("--cache-dir", type=Path, default=DEFAULT_CACHE_DIR)
+    offline.add_argument("--cache-dir", type=Path)
     offline_subparsers = offline.add_subparsers(dest="offline_action", required=True)
 
     offline_list = offline_subparsers.add_parser("list", help="List cached live queries.")
@@ -264,8 +265,19 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     validate_required_aliases(args)
     load_env_file(args.env_file)
+    resolve_path_defaults(args)
     data = None if command_uses_no_manifest(args) else FruitloopsData(args.data_dir or default_data_dir())
     return args.func(args, data)
+
+
+def resolve_path_defaults(args: argparse.Namespace) -> None:
+    for name, resolver in (
+        ("bulk_dir", default_bulk_dir),
+        ("store", default_duckdb_path),
+        ("cache_dir", default_live_cache_dir),
+    ):
+        if hasattr(args, name) and getattr(args, name) is None:
+            setattr(args, name, resolver())
 
 
 def add_find_args(parser: argparse.ArgumentParser) -> None:

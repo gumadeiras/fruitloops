@@ -402,8 +402,10 @@ class CliTest(unittest.TestCase):
             clear=False,
         ):
             with patch("fruitloops.paths.package_root", return_value=Path(tmp) / "missing-package"):
-                with patch("fruitloops.paths.sys.prefix", str(Path(tmp) / "missing-prefix")):
-                    self.assertEqual(default_data_dir(), Path(tmp).resolve() / "xdg" / "fruitloops" / "data")
+                with patch("fruitloops.paths.sys.platform", "linux"), patch(
+                    "fruitloops.paths.sys.prefix", str(Path(tmp) / "missing-prefix")
+                ):
+                    self.assertEqual(default_data_dir(), Path(tmp) / "xdg" / "fruitloops" / "data")
 
     def test_olfaction_label_classifier_covers_olfactory_targets(self) -> None:
         self.assertEqual(classify_name("OSN_DM1_R"), "ORN")
@@ -610,6 +612,22 @@ class CliTest(unittest.TestCase):
                 self.assertEqual(os.environ["FRUITLOOPS_TEST_VALUE"], "from-file")
                 self.assertEqual(os.environ["FRUITLOOPS_KEEP"], "existing")
 
+    def test_env_file_routes_path_defaults(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            env_file = root / "paths.env"
+            env_file.write_text(
+                f"FRUITLOOPS_BULK_DIR={root / 'bulk'}\n"
+                f"FRUITLOOPS_DUCKDB_PATH={root / 'custom.duckdb'}\n"
+                f"FRUITLOOPS_CACHE_DIR={root / 'cache'}\n"
+            )
+            with patch.dict(os.environ, {"HOME": str(root)}, clear=True):
+                output = run_cli("--env-file", str(env_file), "locations", "--format", "csv")
+
+        self.assertIn(f"bulk_dir,{root / 'bulk'}", output)
+        self.assertIn(f"duckdb,{root / 'custom.duckdb'}", output)
+        self.assertIn(f"live_cache,{root / 'cache'}", output)
+
     def test_live_id_and_filter_parsing(self) -> None:
         self.assertEqual(parse_ints(["1,2", "3"]), [1, 2, 3])
         self.assertEqual(parse_in_filters([("pre_pt_root_id", "1,2")]), {"pre_pt_root_id": [1, 2]})
@@ -635,6 +653,24 @@ class CliTest(unittest.TestCase):
             self.assertEqual(rows, [{"id": "1", "weight": "2"}])
             self.assertEqual(calls, 1)
             self.assertEqual(len(list_cache(cache_dir)), 1)
+
+    def test_cache_metadata_uses_current_location_after_move(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            old_dir = Path(tmp) / "old"
+            new_dir = Path(tmp) / "new"
+            get_or_fetch(
+                old_dir,
+                "hemibrain",
+                "neurons",
+                {"body_id": [1]},
+                lambda: [{"id": "1"}],
+            )
+
+            old_dir.rename(new_dir)
+            entry = list_cache(new_dir)[0]
+
+            self.assertTrue(entry.path.is_relative_to(new_dir))
+            self.assertTrue(entry.path.exists())
 
     def test_offline_list_reports_cached_queries(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

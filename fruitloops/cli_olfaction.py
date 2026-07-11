@@ -4,7 +4,6 @@ import argparse
 import sys
 from pathlib import Path
 
-from .bulk import DEFAULT_DUCKDB_PATH
 from .cli_helpers import add_dataset_arg, add_dataset_filter_arg, add_format_arg, unique_values
 from .formatting import emit_rows
 from .olfaction import (
@@ -33,7 +32,7 @@ def add_olfaction_parser(subparsers, *, name: str = "olfaction", hidden: bool = 
         name,
         help=help_text,
     )
-    olfaction.add_argument("--store", type=Path, default=DEFAULT_DUCKDB_PATH)
+    olfaction.add_argument("--store", type=Path)
     olfaction_subparsers = olfaction.add_subparsers(dest="olfaction_action", required=True)
 
     olf_build = olfaction_subparsers.add_parser(
