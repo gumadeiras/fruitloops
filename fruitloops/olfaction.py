@@ -3,19 +3,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from .bulk import (
+from .duckdb_store import (
     DEFAULT_DUCKDB_PATH,
     require_duckdb,
     result_rows,
     safe_identifier,
-    sha256_json,
-    setup_state_matches,
     table_exists,
-    table_fingerprint,
     table_row_count,
-    write_setup_state,
 )
 from .olfaction_labels import sql_classify, sql_glomerulus, sql_side
+from .setup_state import setup_state_matches, sha256_json, table_fingerprint, write_setup_state
 
 
 OLFACTION_PREFIX = "olf"

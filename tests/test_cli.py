@@ -11,17 +11,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 from fruitloops.cli import main
-from fruitloops.bulk import (
-    DEFAULT_DUCKDB_PATH,
-    archive_stem,
-    default_bulk_dir,
-    import_to_duckdb,
-    list_sources,
-    safe_identifier,
-    setup_flywire_bulk,
-    table_summary,
-    where_clause,
-)
+from fruitloops.archives import archive_stem
+from fruitloops.bulk import list_sources, setup_flywire_bulk, table_summary
+from fruitloops.duckdb_store import DEFAULT_DUCKDB_PATH, safe_identifier, where_clause
+from fruitloops.table_import import import_to_duckdb
 from fruitloops.cache import DEFAULT_CACHE_DIR, get_or_fetch, list_cache
 from fruitloops.env import load_env_file
 from fruitloops.live import parse_in_filters, parse_ints
@@ -38,7 +31,7 @@ from fruitloops.olfaction import (
     olfaction_pns,
 )
 from fruitloops.olfaction_labels import classify_name, infer_glomerulus
-from fruitloops.paths import default_data_dir, default_duckdb_path, default_live_cache_dir
+from fruitloops.paths import default_bulk_dir, default_data_dir, default_duckdb_path, default_live_cache_dir
 from fruitloops.plotting import PlotSpec
 
 

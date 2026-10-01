@@ -11,8 +11,8 @@ from pathlib import Path
 
 import numpy as np
 
-from .bulk import require_duckdb, table_exists
 from .curated import transmitter_overrides
+from .duckdb_store import require_duckdb, table_exists
 from .olfaction_labels import infer_side
 
 FLYWIRE_ANNOTATION_TABLE = "flywire_neuron_annotations"

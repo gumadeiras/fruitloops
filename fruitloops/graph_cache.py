@@ -19,17 +19,10 @@ from pathlib import Path
 
 import numpy as np
 
-from .bulk import (
-    require_duckdb,
-    safe_identifier,
-    setup_row,
-    setup_state_matches,
-    sha256_json,
-    table_exists,
-    table_fingerprint,
-    write_setup_state,
-)
+from .bulk import setup_row
+from .duckdb_store import require_duckdb, safe_identifier, table_exists
 from .olfaction import CONNECTION_SPECS, roi_region_sql
+from .setup_state import setup_state_matches, sha256_json, table_fingerprint, write_setup_state
 
 GRAPH_SCHEMA_VERSION = "1"
 GRAPH_REGIONS = ("AL", "LH", "MB")

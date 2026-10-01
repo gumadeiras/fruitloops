@@ -2,13 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .bulk import (
-    DEFAULT_DUCKDB_PATH,
-    SETUP_STATE_TABLE,
-    require_duckdb,
-    safe_identifier,
-    table_exists,
-)
+from .duckdb_store import DEFAULT_DUCKDB_PATH, require_duckdb, safe_identifier, table_exists
 from .olfaction import (
     CONNECTION_SPECS,
     FLYWIRE_HIERARCHICAL_TABLE,
@@ -21,6 +15,7 @@ from .olfaction import (
     olfaction_source_fingerprint,
 )
 from .olfaction_labels import sql_classify, sql_glomerulus
+from .setup_state import SETUP_STATE_TABLE
 
 
 def ensure_olfaction_annotations_applied(

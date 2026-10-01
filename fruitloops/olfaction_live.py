@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .bulk import DEFAULT_DUCKDB_PATH, require_duckdb, safe_identifier
+from .duckdb_store import DEFAULT_DUCKDB_PATH, require_duckdb, safe_identifier
 from .olfaction import (
     CONNECTION_SPECS,
     FLYWIRE_HIERARCHICAL_TABLE,

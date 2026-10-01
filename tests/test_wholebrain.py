@@ -17,7 +17,6 @@ from fruitloops.bulk import (
     FLYWIRE_ANNOTATIONS_COMMIT,
     BulkSource,
     download_source,
-    import_to_duckdb,
     list_sources,
     setup_flywire_bulk,
 )
@@ -25,6 +24,7 @@ from fruitloops.cli import main
 from fruitloops.cli_wholebrain import PATH_COLUMNS, REACH_NEURON_COLUMNS, REACH_TYPE_COLUMNS, SIDE_COLUMNS
 from fruitloops.curated import family_glomeruli, glomerulus_families, transmitter_overrides
 from fruitloops.graph_cache import build_graph_cache, graph_cache_path
+from fruitloops.table_import import import_to_duckdb
 
 HAS_DUCKDB = importlib.util.find_spec("duckdb") is not None
 

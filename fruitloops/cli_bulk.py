@@ -3,24 +3,19 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from .bulk import (
-    archive_stem,
+from .archives import archive_stem, extract_archive_csvs
+from .bulk import download_source, list_sources, setup_practical_bulk, table_summary
+from .cli_helpers import add_dataset_arg, add_format_arg, require_dataset, unique_values
+from .connection_tables import (
     connection_rows,
     create_common_views,
-    download_source,
-    extract_archive_csvs,
-    import_to_duckdb,
-    list_sources,
     optimize_connection_table,
     partner_rows as bulk_partner_rows,
-    query_duckdb,
-    schema_duckdb,
-    setup_practical_bulk,
-    table_summary,
 )
-from .cli_helpers import add_dataset_arg, add_format_arg, require_dataset, unique_values
+from .duckdb_store import query_duckdb, schema_duckdb
 from .filters import parse_filters, split_csv
 from .formatting import emit_rows
+from .table_import import import_to_duckdb
 
 
 def add_bulk_parser(subparsers, *, hidden: bool = False) -> None:
