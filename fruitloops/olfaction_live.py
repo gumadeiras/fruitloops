@@ -15,6 +15,7 @@ from .olfaction import (
     build_olfaction_cache,
     table_exists,
 )
+from .setup_state import sha256_json, write_setup_state
 
 
 def cache_olfaction_annotations(
@@ -225,7 +226,7 @@ def replace_table_from_frames(connection, table: str, frames: list[object]) -> i
     connection.execute(f"DROP TABLE IF EXISTS {safe_identifier(table)}")
     if not nonempty:
         create_empty_annotation_table(connection, table)
-        return 0
+        return record_cached_table(connection, table)
     try:
         import pandas as pd
     except ImportError as exc:
@@ -238,7 +239,22 @@ def replace_table_from_frames(connection, table: str, frames: list[object]) -> i
         f"CREATE TABLE {safe_identifier(table)} AS SELECT * FROM _fruitloops_annotation_import"
     )
     connection.unregister("_fruitloops_annotation_import")
-    return int(connection.execute(f"SELECT count(*) FROM {safe_identifier(table)}").fetchone()[0])
+    return record_cached_table(connection, table)
+
+
+def record_cached_table(connection, table: str) -> int:
+    # A live table has no source file, so its content stands in for the import
+    # fingerprint and a relabel with the same row count still marks it changed.
+    rows, content_hash = connection.execute(
+        f"SELECT count(*), sum(hash(t)) FROM {safe_identifier(table)} AS t"
+    ).fetchone()
+    write_setup_state(
+        connection,
+        f"import:{table}",
+        sha256_json({"rows": rows, "content_hash": str(content_hash)}),
+        str(rows),
+    )
+    return int(rows)
 
 
 def create_empty_annotation_table(connection, table: str) -> None:

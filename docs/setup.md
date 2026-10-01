@@ -85,6 +85,9 @@ Setup prints progress to stderr while keeping the final summary on stdout.
 Re-running setup skips downloads, imports, optimization, derived olfaction
 tables, and graph caches when local source fingerprints still match the stored
 setup state. A graph cache rebuilds when its connection table changes.
+`olf` queries use the same state: when a connection or annotation table changed
+after the last olfaction build, the next query rebuilds the derived tables once
+and prints a note on stderr.
 
 ## Annotation Caching
 
@@ -93,8 +96,9 @@ annotation caching. Use it for first install or when you want setup and labels
 refreshed together.
 
 `fruitloops olf cache-annotations` only refreshes live labels/cache tables and
-then rebuilds `olf_*` tables unless `--no-rebuild` is passed. Use it after setup
-already exists.
+then rebuilds `olf_*` tables unless `--no-rebuild` is passed. With
+`--no-rebuild`, the next `olf` query rebuilds the tables if the cached labels
+changed. Use it after setup already exists.
 
 Practical rule:
 

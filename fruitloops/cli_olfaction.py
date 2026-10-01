@@ -19,7 +19,7 @@ from .olfaction import (
     olfaction_pns,
     olfaction_tables,
 )
-from .olfaction_freshness import ensure_olfaction_annotations_applied
+from .olfaction_freshness import refresh_stale_olfaction_cache
 from .olfaction_live import cache_olfaction_annotations
 
 
@@ -317,9 +317,7 @@ def cmd_olfaction_orn_inputs(args: argparse.Namespace, data) -> int:
 
 
 def ensure_query_annotations(args: argparse.Namespace) -> None:
-    dataset = getattr(args, "dataset", None)
-    datasets = [dataset] if dataset else None
-    if ensure_olfaction_annotations_applied(store=args.store, datasets=datasets):
+    if refresh_stale_olfaction_cache(store=args.store):
         print("fruitloops olf: rebuilt stale derived annotation tables", file=sys.stderr)
 
 

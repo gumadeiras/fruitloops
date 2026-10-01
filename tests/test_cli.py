@@ -14,6 +14,7 @@ from fruitloops.cli import main
 from fruitloops.archives import archive_stem
 from fruitloops.bulk import list_sources, setup_flywire_bulk, table_summary
 from fruitloops.duckdb_store import DEFAULT_DUCKDB_PATH, safe_identifier, where_clause
+from fruitloops.setup_state import write_setup_state
 from fruitloops.table_import import import_to_duckdb
 from fruitloops.cache import DEFAULT_CACHE_DIR, get_or_fetch, list_cache
 from fruitloops.env import load_env_file
@@ -1706,6 +1707,171 @@ class CliTest(unittest.TestCase):
         self.assertIn("flywire,2001,DM1_lPN_R,PN,DM1,ORN,DM1,1,12", output)
 
     @unittest.skipIf(importlib.util.find_spec("duckdb") is None, "duckdb not installed")
+    def test_olfaction_query_rebuilds_only_after_source_change(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            store = tmp_path / "fixture.duckdb"
+            sources = {
+                "flywire_proofread_connections": Path("tests/fixtures/bulk/flywire_olf_connections.csv"),
+                "flywire_hierarchical_neuron_annotations": Path("tests/fixtures/bulk/flywire_hierarchical.csv"),
+            }
+            for table, path in sources.items():
+                import_to_duckdb(path, table, store=store, replace=True, skip_current=True)
+            build_olfaction_cache(store=store, datasets=["flywire"], replace=True, skip_current=True)
+
+            def reimport_changed(table: str, column: str, value: str) -> None:
+                with sources[table].open(newline="") as handle:
+                    rows = list(csv.DictReader(handle))
+                rows[0][column] = value
+                changed = tmp_path / f"{table}.csv"
+                write_csv(changed, rows)
+                import_to_duckdb(changed, table, store=store, replace=True, skip_current=True)
+
+            unchanged = [olf_query_reports_rebuild(store), olf_query_reports_rebuild(store)]
+            reimport_changed("flywire_hierarchical_neuron_annotations", "cell_type", "ORN_DM2_R")
+            annotation_changed = [olf_query_reports_rebuild(store), olf_query_reports_rebuild(store)]
+            reimport_changed("flywire_proofread_connections", "syn_count", "13")
+            connection_changed = [olf_query_reports_rebuild(store), olf_query_reports_rebuild(store)]
+
+        self.assertEqual(unchanged, [False, False])
+        self.assertEqual(annotation_changed, [True, False])
+        self.assertEqual(connection_changed, [True, False])
+
+    @unittest.skipIf(importlib.util.find_spec("duckdb") is None, "duckdb not installed")
+    def test_olfaction_query_uses_newest_recorded_build(self) -> None:
+        import duckdb
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Path(tmp) / "fixture.duckdb"
+            for path, table in [
+                ("tests/fixtures/bulk/flywire_olf_connections.csv", "flywire_proofread_connections"),
+                ("tests/fixtures/bulk/flywire_hierarchical.csv", "flywire_hierarchical_neuron_annotations"),
+            ]:
+                import_to_duckdb(Path(path), table, store=store, replace=True, skip_current=True)
+            build_olfaction_cache(store=store, datasets=None, replace=True, skip_current=True)
+            # Earlier versions left an older single-dataset key next to the newer full build.
+            with duckdb.connect(str(store)) as connection:
+                write_setup_state(connection, "olfaction:olf:flywire", "superseded", "0")
+                connection.execute(
+                    """
+                    UPDATE _fruitloops_setup_state
+                    SET updated_at = '2026-05-15T01:07:11+00:00'
+                    WHERE stage_key = 'olfaction:olf:flywire'
+                    """
+                )
+
+            queries = [olf_query_reports_rebuild(store), olf_query_reports_rebuild(store)]
+            setup_rows = build_olfaction_cache(store=store, datasets=None, replace=True, skip_current=True)
+            with duckdb.connect(str(store), read_only=True) as connection:
+                keys = {
+                    row[0]
+                    for row in connection.execute(
+                        "SELECT stage_key FROM _fruitloops_setup_state WHERE stage_key LIKE 'olfaction:%'"
+                    ).fetchall()
+                }
+
+        self.assertEqual(queries, [False, False])
+        self.assertTrue(any(row["status"] == "current" for row in setup_rows))
+        self.assertEqual(keys, {"olfaction:olf:flywire,hemibrain"})
+
+    @unittest.skipIf(importlib.util.find_spec("duckdb") is None, "duckdb not installed")
+    def test_olfaction_query_skips_rebuild_after_manual_build(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Path(tmp) / "fixture.duckdb"
+            import_to_duckdb(
+                Path("tests/fixtures/bulk/flywire_olf_connections.csv"),
+                "flywire_proofread_connections",
+                store=store,
+                replace=True,
+                skip_current=True,
+            )
+            build_olfaction_cache(store=store, datasets=["flywire"], replace=True, skip_current=True)
+            import_to_duckdb(
+                Path("tests/fixtures/bulk/flywire_hierarchical.csv"),
+                "flywire_hierarchical_neuron_annotations",
+                store=store,
+                replace=True,
+                skip_current=True,
+            )
+            run_cli_capture("olf", "--store", str(store), "build", "--format", "csv")
+
+            queries = [olf_query_reports_rebuild(store), olf_query_reports_rebuild(store)]
+
+        self.assertEqual(queries, [False, False])
+
+    @unittest.skipIf(importlib.util.find_spec("duckdb") is None, "duckdb not installed")
+    def test_olfaction_build_selection_ignores_dataset_order(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Path(tmp) / "fixture.duckdb"
+            import_to_duckdb(
+                Path("tests/fixtures/bulk/flywire_olf_connections.csv"),
+                "flywire_proofread_connections",
+                store=store,
+                replace=True,
+                skip_current=True,
+            )
+            build_olfaction_cache(store=store, datasets=["flywire", "hemibrain"], replace=True, skip_current=True)
+
+            queries = [olf_query_reports_rebuild(store), olf_query_reports_rebuild(store)]
+            setup_rows = build_olfaction_cache(
+                store=store,
+                datasets=["hemibrain", "flywire"],
+                replace=True,
+                skip_current=True,
+            )
+
+        self.assertEqual(queries, [False, False])
+        self.assertTrue(any(row["status"] == "current" for row in setup_rows))
+
+    @unittest.skipIf(importlib.util.find_spec("duckdb") is None, "duckdb not installed")
+    def test_olfaction_annotation_cache_records_label_changes(self) -> None:
+        import duckdb
+        import pandas as pd
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Path(tmp) / "fixture.duckdb"
+            import_to_duckdb(
+                Path("tests/fixtures/bulk/flywire_olf_connections.csv"),
+                "flywire_proofread_connections",
+                store=store,
+                replace=True,
+                skip_current=True,
+            )
+            build_olfaction_cache(store=store, datasets=["flywire"], replace=True, skip_current=True)
+            hierarchical = pd.read_csv("tests/fixtures/bulk/flywire_hierarchical.csv")
+            root_ids = hierarchical["pt_root_id"].unique()
+            live_tables = {
+                "proofread_neurons": pd.DataFrame({"id": root_ids, "pt_root_id": root_ids}),
+                "hierarchical_neuron_annotations": hierarchical,
+                "neuron_information_v2": pd.read_csv("tests/fixtures/bulk/flywire_neuron_info.csv"),
+            }
+
+            def cache_annotations(*flags: str) -> None:
+                with (
+                    patch("fruitloops.live.flywire_client"),
+                    patch("fruitloops.live.flywire_config"),
+                    patch(
+                        "fruitloops.olfaction_live.flywire_table_chunks",
+                        side_effect=lambda client, table, *args: [live_tables[table]],
+                    ),
+                ):
+                    run_cli_capture("olf", "--store", str(store), "cache-annotations", "--flywire", *flags, "--format", "csv")
+
+            cache_annotations()
+            after_cache = [olf_query_reports_rebuild(store), olf_query_reports_rebuild(store)]
+            live_tables["hierarchical_neuron_annotations"] = hierarchical.replace("ORN_DM1_R", "ORN_DM2_R")
+            cache_annotations("--no-rebuild")
+            after_relabel = [olf_query_reports_rebuild(store), olf_query_reports_rebuild(store)]
+            with duckdb.connect(str(store), read_only=True) as connection:
+                glomerulus = connection.execute(
+                    "SELECT glomerulus FROM olf_neurons WHERE dataset = 'flywire' AND body_id = '1001'"
+                ).fetchone()[0]
+
+        self.assertEqual(after_cache, [False, False])
+        self.assertEqual(after_relabel, [True, False])
+        self.assertEqual(glomerulus, "DM2")
+
+    @unittest.skipIf(importlib.util.find_spec("duckdb") is None, "duckdb not installed")
     def test_olfaction_warns_when_hemibrain_compact_cache_lacks_orn_glomerulus(self) -> None:
         import duckdb
 
@@ -2070,6 +2236,24 @@ def run_cli_capture(*args: str) -> tuple[str, str]:
     if result != 0:
         raise AssertionError(f"CLI exited with {result}")
     return output.getvalue(), progress.getvalue()
+
+
+def olf_query_reports_rebuild(store: Path) -> bool:
+    _, progress = run_cli_capture(
+        "olf",
+        "--store",
+        str(store),
+        "inputs",
+        "--dataset",
+        "flywire",
+        "--target-class",
+        "PN",
+        "--source-class",
+        "ORN",
+        "--format",
+        "csv",
+    )
+    return "rebuilt stale derived annotation tables" in progress
 
 
 def assert_nonempty_cli(test: unittest.TestCase, output: str) -> None:

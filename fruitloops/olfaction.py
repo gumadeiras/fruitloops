@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -12,7 +13,13 @@ from .duckdb_store import (
     table_row_count,
 )
 from .olfaction_labels import sql_classify, sql_glomerulus, sql_side
-from .setup_state import setup_state_matches, sha256_json, table_fingerprint, write_setup_state
+from .setup_state import (
+    SETUP_STATE_TABLE,
+    setup_state_matches,
+    sha256_json,
+    table_fingerprint,
+    write_setup_state,
+)
 
 
 OLFACTION_PREFIX = "olf"
@@ -66,17 +73,13 @@ def build_olfaction_cache(
     skip_current: bool = False,
 ) -> list[dict[str, str]]:
     duckdb = require_duckdb("olfaction build")
-    selected = tuple(datasets or CONNECTION_SPECS.keys())
+    selected = olfaction_selection(datasets)
     prefix = safe_identifier(prefix)
     with duckdb.connect(str(store)) as connection:
-        stage_key = f"olfaction:{prefix}:{','.join(sorted(selected))}"
+        stage_key = olfaction_stage_key(prefix, selected)
         fingerprint = olfaction_source_fingerprint(connection, selected, prefix)
-        if (
-            skip_current
-            and olfaction_cache_exists(connection, prefix)
-            and olfaction_cache_covers_datasets(connection, prefix, selected)
-            and setup_state_matches(connection, stage_key, fingerprint)
-        ):
+        if skip_current and olfaction_cache_is_current(connection, prefix, selected, fingerprint):
+            drop_superseded_olfaction_state(connection, prefix, stage_key)
             return table_counts(connection, prefix, store, [], status="current")
         if not replace and table_exists(connection, f"{prefix}_neurons"):
             return table_counts(connection, prefix, store, [], status="existing")
@@ -106,14 +109,72 @@ def build_olfaction_cache(
         create_pathway_summary_table(connection, prefix)
         create_cell_type_summary_table(connection, prefix)
         create_indexes(connection, prefix)
-        if skip_current:
-            write_setup_state(
-                connection,
-                stage_key,
-                fingerprint,
-                table_row_count(connection, f"{prefix}_neurons"),
-            )
+        write_setup_state(
+            connection,
+            stage_key,
+            fingerprint,
+            table_row_count(connection, f"{prefix}_neurons"),
+        )
+        drop_superseded_olfaction_state(connection, prefix, stage_key)
         return table_counts(connection, prefix, store, imported)
+
+
+def olfaction_selection(datasets: Iterable[str] | None) -> tuple[str, ...]:
+    # A fixed order keeps the source fingerprint independent of argument order.
+    requested = set(datasets or CONNECTION_SPECS)
+    unknown = requested.difference(CONNECTION_SPECS)
+    if unknown:
+        raise ValueError(f"unknown olfaction dataset: {', '.join(sorted(unknown))}")
+    return tuple(dataset for dataset in CONNECTION_SPECS if dataset in requested)
+
+
+def olfaction_stage_prefix(prefix: str) -> str:
+    return f"olfaction:{prefix}:"
+
+
+def olfaction_stage_key(prefix: str, selected: tuple[str, ...]) -> str:
+    return olfaction_stage_prefix(prefix) + ",".join(sorted(selected))
+
+
+def olfaction_cache_is_current(connection, prefix: str, selected: tuple[str, ...], fingerprint: str) -> bool:
+    return (
+        olfaction_cache_exists(connection, prefix)
+        and olfaction_cache_covers_datasets(connection, prefix, selected)
+        and setup_state_matches(connection, olfaction_stage_key(prefix, selected), fingerprint)
+    )
+
+
+def olfaction_built_datasets(connection, prefix: str) -> tuple[str, ...]:
+    # The newest recorded build names the datasets of the current tables.
+    # Tables built before builds were recorded fall back to their provenance.
+    stage_prefix = olfaction_stage_prefix(prefix)
+    row = None
+    if table_exists(connection, SETUP_STATE_TABLE):
+        row = connection.execute(
+            f"""
+            SELECT stage_key
+            FROM {SETUP_STATE_TABLE}
+            WHERE starts_with(stage_key, ?)
+            ORDER BY updated_at DESC
+            LIMIT 1
+            """,
+            [stage_prefix],
+        ).fetchone()
+    if row:
+        return olfaction_selection(row[0].removeprefix(stage_prefix).split(","))
+    return olfaction_selection(olfaction_provenance_datasets(connection, prefix))
+
+
+def drop_superseded_olfaction_state(connection, prefix: str, stage_key: str) -> None:
+    # One table set exists per prefix, so only the key that describes it stays.
+    connection.execute(
+        f"""
+        DELETE FROM {SETUP_STATE_TABLE}
+        WHERE starts_with(stage_key, ?)
+          AND stage_key <> ?
+        """,
+        [olfaction_stage_prefix(prefix), stage_key],
+    )
 
 
 def roi_region_sql(expression: str) -> str:
@@ -163,7 +224,15 @@ def olfaction_cache_exists(connection, prefix: str) -> bool:
 def olfaction_cache_covers_datasets(connection, prefix: str, datasets: tuple[str, ...]) -> bool:
     if not table_exists(connection, f"{prefix}_provenance"):
         return False
-    present = {
+    # A dataset without its connection table adds no rows, so it has no provenance.
+    expected = {dataset for dataset in datasets if table_exists(connection, CONNECTION_SPECS[dataset].table)}
+    return expected.issubset(olfaction_provenance_datasets(connection, prefix))
+
+
+def olfaction_provenance_datasets(connection, prefix: str) -> set[str]:
+    if not table_exists(connection, f"{prefix}_provenance"):
+        return set()
+    return {
         row[0]
         for row in connection.execute(
             f"""
@@ -172,7 +241,6 @@ def olfaction_cache_covers_datasets(connection, prefix: str, datasets: tuple[str
             """
         ).fetchall()
     }
-    return set(datasets).issubset(present)
 
 
 def create_connection_table(connection, prefix: str) -> None:

@@ -25,10 +25,20 @@
 
 - Applied Fruitloops storage path overrides loaded through `--env-file` before
   resolving CLI defaults.
+- `fruitloops olf` queries rebuild the derived olfaction tables only when a
+  connection or annotation table changed after the last build. Before, a query
+  after a single-dataset setup could rebuild on every run, or report a rebuild
+  that did not occur.
+- `fruitloops olf build` and `fruitloops olf cache-annotations` now record
+  their build, so the next query does not rebuild the tables again. Re-fetched
+  annotation labels mark the tables stale even when the row count is the same.
 
 ### Changes
 
 - Added `scipy` as a runtime dependency.
+- Olfaction tables without a recorded build, for example tables from
+  `fruitloops olf build` in an earlier version, rebuild once on the next `olf`
+  query.
 - `fruitloops admin bulk sources` now lists the pinned sha256 of each source
   that has one, and downloads of those sources are verified.
 - Moved downloaded bulk data and DuckDB state to the operating system's
