@@ -242,6 +242,8 @@ def parse_hops(value: str) -> list[int]:
 
 def cmd_neurons(args: argparse.Namespace, data) -> int:
     dataset = require_dataset(args)
+    if args.limit < 1:
+        raise SystemExit("--limit must be at least 1")
     labels = load_neuron_labels(args.store, dataset)
     if args.sign_conflicts and not labels.has_transmitters:
         raise SystemExit(f"--sign-conflicts needs transmitter predictions; {dataset} has none offline")

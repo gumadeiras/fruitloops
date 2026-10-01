@@ -19,9 +19,11 @@ def add_dataset_arg(
     *,
     required: bool = False,
 ) -> None:
-    parser.add_argument("--dataset", choices=choices)
+    # One dataset per command: conflicting flags are an error instead of the last one winning.
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--dataset", choices=choices)
     for dataset in choices:
-        parser.add_argument(
+        group.add_argument(
             f"--{dataset}",
             dest="dataset",
             action="store_const",

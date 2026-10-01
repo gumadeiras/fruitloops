@@ -30,6 +30,8 @@ from fruitloops.olfaction import (
     olfaction_orn_inputs,
     olfaction_pathway_summary,
     olfaction_pns,
+    olfaction_provenance_datasets,
+    olfaction_source_fingerprint,
 )
 from fruitloops.olfaction_labels import classify_name, infer_glomerulus
 from fruitloops.paths import default_bulk_dir, default_data_dir, default_duckdb_path, default_live_cache_dir
@@ -1773,6 +1775,69 @@ class CliTest(unittest.TestCase):
         self.assertEqual(queries, [False, False])
         self.assertTrue(any(row["status"] == "current" for row in setup_rows))
         self.assertEqual(keys, {"olfaction:olf:flywire,hemibrain"})
+
+    @unittest.skipIf(importlib.util.find_spec("duckdb") is None, "duckdb not installed")
+    def test_olfaction_setup_for_one_dataset_rebuilds_tables_with_two_datasets(self) -> None:
+        import duckdb
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            store = tmp_path / "fixture.duckdb"
+            hemibrain = tmp_path / "hemibrain.csv"
+            write_csv(hemibrain, [{"bodyId_pre": "501", "bodyId_post": "601", "roi": "AL(R)", "weight": "11"}])
+            import_to_duckdb(
+                Path("tests/fixtures/bulk/flywire_olf_connections.csv"),
+                "flywire_proofread_connections",
+                store=store,
+                replace=True,
+                skip_current=True,
+            )
+            import_to_duckdb(hemibrain, "hemibrain_traced_roi_connections", store=store, replace=True, skip_current=True)
+            build_olfaction_cache(store=store, datasets=None, replace=True, skip_current=True)
+            # Earlier versions could leave a matching flywire-only key beside the full build.
+            with duckdb.connect(str(store)) as connection:
+                fingerprint = olfaction_source_fingerprint(connection, ("flywire",), "olf")
+                write_setup_state(connection, "olfaction:olf:flywire", fingerprint, "0")
+
+            rows = build_olfaction_cache(store=store, datasets=["flywire"], replace=True, skip_current=True)
+            with duckdb.connect(str(store), read_only=True) as connection:
+                datasets = olfaction_provenance_datasets(connection, "olf")
+                keys = {
+                    row[0]
+                    for row in connection.execute(
+                        "SELECT stage_key FROM _fruitloops_setup_state WHERE stage_key LIKE 'olfaction:%'"
+                    ).fetchall()
+                }
+
+        self.assertNotIn("current", {row["status"] for row in rows})
+        self.assertEqual(datasets, {"flywire"})
+        self.assertEqual(keys, {"olfaction:olf:flywire"})
+
+    @unittest.skipIf(importlib.util.find_spec("duckdb") is None, "duckdb not installed")
+    def test_olfaction_edges_rebuild_after_manual_reimport(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            store = tmp_path / "fixture.duckdb"
+            source = Path("tests/fixtures/bulk/flywire_olf_connections.csv")
+            import_to_duckdb(source, "flywire_proofread_connections", store=store, replace=True, skip_current=True)
+            build_olfaction_cache(store=store, datasets=["flywire"], replace=True, skip_current=True)
+            with source.open(newline="") as handle:
+                rows = list(csv.DictReader(handle))
+            rows[0]["syn_count"] = "77"
+            changed = tmp_path / "changed.csv"
+            write_csv(changed, rows)
+            # Same rows and columns: only the recorded import file tells the tables apart.
+            run_cli_capture(
+                "admin", "bulk", "--store", str(store), "import", "--path", str(changed),
+                "--table", "flywire_proofread_connections", "--replace",
+            )
+            output, progress = run_cli_capture(
+                "olf", "--store", str(store), "edges", "--dataset", "flywire", "--pre-id", "1001",
+                "--post-id", "2001", "--format", "csv",
+            )
+
+        self.assertIn("rebuilt stale derived annotation tables", progress)
+        self.assertIn(",77,", output)
 
     @unittest.skipIf(importlib.util.find_spec("duckdb") is None, "duckdb not installed")
     def test_olfaction_query_skips_rebuild_after_manual_build(self) -> None:

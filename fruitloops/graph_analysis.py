@@ -21,6 +21,8 @@ Definitions (see docs/paths.md):
 
 from __future__ import annotations
 
+import heapq
+import itertools
 from dataclasses import dataclass
 
 import numpy as np
@@ -71,6 +73,11 @@ class EdgeTable:
         hits = np.flatnonzero(self.src[block] == src)
         return block.start + int(hits[0]) if len(hits) else -1
 
+    def without_source(self, node: int) -> "EdgeTable":
+        """The same edges minus those whose presynaptic neuron is ``node``."""
+        keep = self.src != node
+        return EdgeTable.build(self.src[keep], self.dst[keep], self.weight[keep], self.synapses[keep])
+
     def matrix(self, size: int, sign: np.ndarray | None = None) -> sparse.csr_matrix:
         weight = self.weight if sign is None else self.weight * sign[self.src]
         return sparse.csr_matrix((weight, (self.src, self.dst)), shape=(size, size))
@@ -79,7 +86,6 @@ class EdgeTable:
 @dataclass
 class QueryGraph:
     graph: ConnectomeGraph
-    min_synapses: int
     kept: np.ndarray
     weight: np.ndarray
 
@@ -87,7 +93,7 @@ class QueryGraph:
 def threshold_graph(graph: ConnectomeGraph, min_synapses: int) -> QueryGraph:
     kept = np.flatnonzero(graph.synapses >= min_synapses)
     weight = graph.synapses[kept] / graph.input_synapses[graph.post[kept]]
-    return QueryGraph(graph=graph, min_synapses=min_synapses, kept=kept, weight=weight)
+    return QueryGraph(graph=graph, kept=kept, weight=weight)
 
 
 def relay_edges(query: QueryGraph, sources: np.ndarray, keep_pre: np.ndarray | None = None) -> EdgeTable:
@@ -147,10 +153,6 @@ def region_synapses(graph: ConnectomeGraph, pairs: np.ndarray, region: str) -> n
     return out
 
 
-def unit_seeds(sources: np.ndarray) -> np.ndarray:
-    return sources.astype(np.float64)
-
-
 def input_fraction_seeds(graph: ConnectomeGraph, sources: np.ndarray, inputs: np.ndarray) -> np.ndarray:
     """Seed(source) = synapses from ``inputs`` onto it / all its input synapses (no threshold)."""
     pairs = inputs[graph.pre] & sources[graph.post]
@@ -161,7 +163,7 @@ def input_fraction_seeds(graph: ConnectomeGraph, sources: np.ndarray, inputs: np
 
 @dataclass
 class PathSearch:
-    size: int
+    seeds: np.ndarray
     seed_cost: np.ndarray
     first: EdgeTable
     relay: EdgeTable
@@ -201,7 +203,7 @@ def search_paths(first: EdgeTable, relay: EdgeTable, seeds: np.ndarray, max_hops
             break
         costs.append(np.where(improved, candidate, costs[-1]))
         preds.append(np.where(improved, candidate_pred, -1))
-    return PathSearch(size=size, seed_cost=seed_cost, first=first, relay=relay, costs=costs, preds=preds)
+    return PathSearch(seeds=seeds, seed_cost=seed_cost, first=first, relay=relay, costs=costs, preds=preds)
 
 
 def trace(search: PathSearch, node: int, level: int) -> list[int]:
@@ -224,36 +226,52 @@ def shortest_hops(search: PathSearch, node: int) -> int | None:
 
 
 def ranked_paths(search: PathSearch, target: int, max_hops: int, top: int) -> list[tuple[float, list[int]]]:
-    """Strongest path, then the strongest path through each other last relay.
+    """Strongest path, then the strongest path through each other last presynaptic neuron.
 
-    Rank 1 is the strongest path within ``max_hops``. Later ranks are the
-    strongest paths that reach the target through a different presynaptic
-    neuron; a candidate whose best prefix already passes through the target is
-    skipped.
+    Rank 1 is the strongest path within ``max_hops``. Each later rank is the
+    strongest path that reaches the target through a different presynaptic
+    neuron. No path passes through the target before its last step: when the
+    best path to a presynaptic neuron does, that neuron's best path that avoids
+    the target is used instead.
     """
-    candidates: list[tuple[float, int, bool]] = []
+    level = min(max_hops - 1, search.levels)
+    order = itertools.count()
+    queue: list[tuple[float, int, int, float, list[int] | None]] = []
     block = search.first.into(target)
     for edge in range(block.start, block.stop):
-        cost = search.seed_cost[search.first.src[edge]] + search.first.cost[edge]
-        if np.isfinite(cost):
-            candidates.append((float(cost), int(search.first.src[edge]), True))
+        node = int(search.first.src[edge])
+        cost = float(search.seed_cost[node] + search.first.cost[edge])
+        if np.isfinite(cost) and node != target:
+            queue.append((cost, node, next(order), 0.0, [node]))
     if max_hops >= 2:
-        level = min(max_hops - 1, search.levels)
         block = search.relay.into(target)
-        src = search.relay.src[block]
-        costs = search.costs[level][src] + search.relay.cost[block]
-        for node, cost in zip(src[np.isfinite(costs)].tolist(), costs[np.isfinite(costs)].tolist()):
-            candidates.append((cost, node, False))
-    candidates.sort(key=lambda item: (item[0], item[1]))
+        for node, edge_cost in zip(search.relay.src[block].tolist(), search.relay.cost[block].tolist()):
+            cost = float(search.costs[level][node] + edge_cost)
+            if np.isfinite(cost) and node != target:
+                queue.append((cost, node, next(order), edge_cost, None))
+    heapq.heapify(queue)
+    avoiding: PathSearch | None = None
     out = []
-    for cost, node, direct in candidates:
-        prefix = [node] if direct else trace(search, node, min(max_hops - 1, search.levels))
-        if target in prefix:
-            continue
+    while queue and len(out) < top:
+        cost, node, _, edge_cost, prefix = heapq.heappop(queue)
+        if prefix is None:
+            prefix = trace(search, node, level)
+            if target in prefix:
+                # Avoiding the target can only cost more, so the entry goes back in order.
+                avoiding = avoiding or search_avoiding(search, target, level)
+                cost = float(avoiding.costs[-1][node] + edge_cost)
+                if np.isfinite(cost):
+                    heapq.heappush(queue, (cost, node, next(order), edge_cost, trace(avoiding, node, level)))
+                continue
         out.append((cost, prefix + [target]))
-        if len(out) >= top:
-            break
     return out
+
+
+def search_avoiding(search: PathSearch, target: int, max_hops: int) -> PathSearch:
+    """The same search with ``target`` removed as a source and as a relay."""
+    seeds = search.seeds.copy()
+    seeds[target] = 0.0
+    return search_paths(search.first, search.relay.without_source(target), seeds, max_hops)
 
 
 def propagate(

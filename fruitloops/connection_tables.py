@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .duckdb_store import choose_column, require_duckdb, run_sql, safe_identifier, schema_duckdb
+from .duckdb_store import require_duckdb, run_sql, safe_identifier, schema_duckdb
 from .setup_state import setup_state_matches, table_fingerprint, write_setup_state
 
 PRE_COLUMNS = (
@@ -186,3 +186,17 @@ def view_roi_projection(column: str) -> str:
     if not column:
         return ""
     return f", {safe_identifier(column)} AS roi"
+
+
+def choose_column(
+    columns: list[str],
+    candidates: tuple[str, ...],
+    required: bool = True,
+) -> str:
+    lookup = {column.lower(): column for column in columns}
+    for candidate in candidates:
+        if candidate.lower() in lookup:
+            return lookup[candidate.lower()]
+    if required:
+        raise ValueError(f"could not infer column from candidates {candidates}; columns={columns}")
+    return ""

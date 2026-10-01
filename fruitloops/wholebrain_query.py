@@ -9,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .curated import family_glomeruli, receptor_families
+from .curated import family_glomeruli
 from .graph_analysis import (
     ROUTES,
     EdgeTable,
@@ -23,7 +23,6 @@ from .graph_analysis import (
     search_paths,
     shortest_hops,
     threshold_graph,
-    unit_seeds,
 )
 from .graph_cache import ConnectomeGraph, load_graph
 from .neuron_labels import NeuronLabels, load_neuron_labels
@@ -127,14 +126,12 @@ def seed_vector(context: QueryContext, orn: OrnSeedSpec, side: str | None = None
     """Seed weights over graph nodes; ``side`` limits seeds to one side."""
     if not orn.active:
         sources = context.sources & (context.sides == side) if side else context.sources
-        return unit_seeds(sources)
+        return sources.astype(np.float64)
     inputs = orn_input_nodes(context, orn, side or orn.side)
     return input_fraction_seeds(context.graph, context.sources, inputs)
 
 
 def orn_input_nodes(context: QueryContext, orn: OrnSeedSpec, side: str | None) -> np.ndarray:
-    if context.dataset != "flywire":
-        raise SystemExit("ORN weighting needs FlyWire ORN glomerulus annotations; use --flywire")
     glomeruli_by_row = context.labels.sensory_glomeruli()
     glomeruli = np.where(context.node_rows >= 0, glomeruli_by_row[context.node_rows.clip(min=0)], "")
     present = sorted({value for value in glomeruli_by_row.tolist() if value})
@@ -146,29 +143,27 @@ def orn_input_nodes(context: QueryContext, orn: OrnSeedSpec, side: str | None) -
         chosen = {orn.glomerulus}
     else:
         chosen = family_glomeruli(orn.family or "")
-        if not chosen:
-            raise SystemExit(
-                f"--orn-family '{orn.family}' has no verified glomeruli; choose from {', '.join(receptor_families())}"
-            )
     inputs = np.isin(glomeruli, sorted(chosen))
     if side:
         inputs &= context.sides == side
     if not inputs.any():
-        raise SystemExit(f"no FlyWire sensory neurons match {orn_description(orn, side)}")
+        # A side other than --orn-side comes from --by-side, which needs ORNs on both antennae.
+        where = f" on the {side} antenna side (needed by --by-side)" if side and side != orn.side else ""
+        raise SystemExit(f"no FlyWire sensory neurons match {orn_description(orn)}{where}")
     return inputs
 
 
-def orn_description(orn: OrnSeedSpec, side: str | None = None) -> str:
+def orn_description(orn: OrnSeedSpec) -> str:
     parts = [f"--orn-family {orn.family}" if orn.family else f"--orn-glomerulus {orn.glomerulus}"]
-    if side:
-        parts.append(f"--orn-side {side}")
+    if orn.side:
+        parts.append(f"--orn-side {orn.side}")
     return " ".join(parts)
 
 
 def report_seeds(context: QueryContext, selection: Selection) -> None:
     positive = int((context.seeds > 0).sum())
     seed_text = (
-        f"seed = input fraction from {orn_description(context.orn, context.orn.side)} ORNs"
+        f"seed = input fraction from {orn_description(context.orn)} ORNs"
         if context.orn.active
         else "seed = 1 per source neuron"
     )
@@ -187,6 +182,13 @@ def route_edges(context: QueryContext, route: str, keep_pre: np.ndarray | None =
 
 def path_rows(context: QueryContext, routes: list[str], max_hops: int, top: int, signed: bool) -> list[dict[str, str]]:
     keep_pre = context.signs != 0 if signed else None
+    if signed:
+        unsigned = int((context.sources & (context.signs == 0)).sum())
+        if unsigned:
+            print(
+                f"{context.command}: --signed excludes {unsigned} source neurons without a fast-transmitter sign",
+                file=sys.stderr,
+            )
     relay = relay_edges(context.query, context.sources, keep_pre)
     conflicts = context.labels.sign_conflict_types()
     targets = sorted(
@@ -204,13 +206,14 @@ def path_rows(context: QueryContext, routes: list[str], max_hops: int, top: int,
             hops = shortest_hops(search, target)
             for rank, (cost, path) in enumerate(found, start=1):
                 rows.append(path_row(context, route, rank, cost, path, hops, first, relay, conflicts))
+    notes = []
+    if missing:
+        notes.append(f"no path within {max_hops} hops for {missing} target/route combinations")
     absent = int((context.target_nodes < 0).sum())
-    if missing or absent:
-        print(
-            f"{context.command}: no path within {max_hops} hops for {missing} target/route combinations"
-            + (f"; {absent} target neurons have no connections" if absent else ""),
-            file=sys.stderr,
-        )
+    if absent:
+        notes.append(f"{absent} target neurons have no connections in the {context.dataset} graph")
+    if notes:
+        print(f"{context.command}: {'; '.join(notes)}", file=sys.stderr)
     return rows
 
 
@@ -273,6 +276,13 @@ def reach_rows(
     per_neuron: bool,
     by_side: bool,
 ) -> list[dict[str, str]]:
+    absent = int((context.target_nodes < 0).sum())
+    if absent:
+        print(
+            f"{context.command}: {absent} target neurons have no connections in the {context.dataset} graph; "
+            "their reach is 0",
+            file=sys.stderr,
+        )
     relay = relay_edges(context.query, context.sources)
     side_seeds = {side: seed_vector(context, context.orn, side) for side in SIDES} if by_side else {}
     rows = []

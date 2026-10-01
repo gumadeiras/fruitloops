@@ -12,21 +12,24 @@ from __future__ import annotations
 import json
 import os
 import sys
+import tempfile
 import time
+import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
 
-from .bulk import setup_row
-from .duckdb_store import require_duckdb, safe_identifier, table_exists
+from .duckdb_store import connect_read_only, safe_identifier, table_exists
 from .olfaction import CONNECTION_SPECS, roi_region_sql
-from .setup_state import setup_state_matches, sha256_json, table_fingerprint, write_setup_state
+from .setup_state import setup_row, sha256_json, table_fingerprint
 
 GRAPH_SCHEMA_VERSION = "1"
 GRAPH_REGIONS = ("AL", "LH", "MB")
 GRAPH_DATASETS = tuple(CONNECTION_SPECS)
+# np.load raises these for a truncated or corrupt cache file.
+GRAPH_READ_ERRORS = (OSError, KeyError, ValueError, EOFError, zipfile.BadZipFile)
 
 
 @dataclass
@@ -39,7 +42,6 @@ class ConnectomeGraph:
     region_pairs: dict[str, np.ndarray]
     region_synapses: dict[str, np.ndarray]
     input_synapses: np.ndarray
-    meta: dict
 
     @property
     def size(self) -> int:
@@ -47,11 +49,16 @@ class ConnectomeGraph:
 
     def nodes_for_ids(self, ids: np.ndarray) -> np.ndarray:
         """Graph node for each id, or -1 when the neuron has no connections."""
-        ids = np.asarray(ids, dtype=np.int64)
-        if not len(self.ids):
-            return np.full(len(ids), -1, dtype=np.int64)
-        nodes = np.searchsorted(self.ids, ids).clip(max=len(self.ids) - 1)
-        return np.where(self.ids[nodes] == ids, nodes, -1)
+        return sorted_positions(self.ids, ids)
+
+
+def sorted_positions(sorted_ids: np.ndarray, ids: np.ndarray) -> np.ndarray:
+    """Position of each id in ``sorted_ids``, or -1 when the id is absent."""
+    ids = np.asarray(ids, dtype=np.int64)
+    if not len(sorted_ids):
+        return np.full(len(ids), -1, dtype=np.int64)
+    positions = np.searchsorted(sorted_ids, ids).clip(max=len(sorted_ids) - 1)
+    return np.where(sorted_ids[positions] == ids, positions, -1)
 
 
 def graph_cache_path(store: Path, dataset: str) -> Path:
@@ -71,36 +78,31 @@ def graph_source_fingerprint(connection, dataset: str) -> str:
 
 
 def build_graph_cache(store: Path, dataset: str, *, skip_current: bool = False) -> dict[str, str]:
-    duckdb = require_duckdb("graph build")
+    """Build the dataset's cache file. The file's metadata records its source, so the store is only read."""
     spec = CONNECTION_SPECS[dataset]
     path = graph_cache_path(store, dataset)
-    stage_key = f"graph:{dataset}"
-    store.parent.mkdir(parents=True, exist_ok=True)
-    with duckdb.connect(str(store)) as connection:
+    if not store.exists():
+        return setup_row(dataset, "graph", dataset, f"missing:{spec.table}", path, store)
+    with connect_read_only(store, "graph build") as connection:
         if not table_exists(connection, spec.table):
             return setup_row(dataset, "graph", dataset, f"missing:{spec.table}", path, store)
         fingerprint = graph_source_fingerprint(connection, dataset)
         meta = read_graph_meta(path)
-        if (
-            skip_current
-            and meta.get("fingerprint") == fingerprint
-            and setup_state_matches(connection, stage_key, fingerprint)
-        ):
+        if skip_current and meta.get("fingerprint") == fingerprint:
             return setup_row(dataset, "graph", dataset, f"current:{meta.get('pairs', '')}", path, store)
         started = time.perf_counter()
         arrays = aggregate_pairs(connection, dataset)
-        meta = {
-            "schema_version": GRAPH_SCHEMA_VERSION,
-            "dataset": dataset,
-            "source_table": spec.table,
-            "fingerprint": fingerprint,
-            "nodes": int(len(arrays["ids"])),
-            "pairs": int(len(arrays["pre"])),
-            "built_at": datetime.now(timezone.utc).isoformat(),
-        }
-        meta["build_seconds"] = round(time.perf_counter() - started, 3)
-        write_graph_file(path, arrays, meta)
-        write_setup_state(connection, stage_key, fingerprint, str(meta["pairs"]))
+    meta = {
+        "schema_version": GRAPH_SCHEMA_VERSION,
+        "dataset": dataset,
+        "source_table": spec.table,
+        "fingerprint": fingerprint,
+        "nodes": int(len(arrays["ids"])),
+        "pairs": int(len(arrays["pre"])),
+        "built_at": datetime.now(timezone.utc).isoformat(),
+        "build_seconds": round(time.perf_counter() - started, 3),
+    }
+    write_graph_file(path, arrays, meta)
     return setup_row(dataset, "graph", dataset, str(meta["pairs"]), path, store)
 
 
@@ -148,19 +150,29 @@ def aggregate_pairs(connection, dataset: str) -> dict[str, np.ndarray]:
 
 
 def write_graph_file(path: Path, arrays: dict[str, np.ndarray], meta: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f"{path.stem}.tmp.npz")
-    np.savez(tmp, meta=np.array(json.dumps(meta, sort_keys=True)), **arrays)
-    os.replace(tmp, path)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # Each build writes its own temporary file, so concurrent builds cannot mix their output.
+        handle, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.stem}.", suffix=".npz")
+        try:
+            with os.fdopen(handle, "wb") as stream:
+                np.savez(stream, meta=np.array(json.dumps(meta, sort_keys=True)), **arrays)
+            os.replace(tmp, path)
+        except BaseException:
+            Path(tmp).unlink(missing_ok=True)
+            raise
+    except OSError as error:
+        raise SystemExit(f"cannot write graph cache {path}: {error}") from error
 
 
 def read_graph_meta(path: Path) -> dict:
+    """Cache metadata, or {} when the file is missing or unreadable."""
     if not path.exists():
         return {}
     try:
         with np.load(path, allow_pickle=False) as data:
             return json.loads(str(data["meta"]))
-    except (OSError, KeyError, ValueError):
+    except GRAPH_READ_ERRORS:
         return {}
 
 
@@ -168,8 +180,7 @@ def current_source_fingerprint(store: Path, dataset: str) -> str:
     """Fingerprint of the dataset's connection table, or '' when it is missing."""
     if not store.exists():
         return ""
-    duckdb = require_duckdb("graph status")
-    with duckdb.connect(str(store), read_only=True) as connection:
+    with connect_read_only(store, "graph status") as connection:
         if not table_exists(connection, CONNECTION_SPECS[dataset].table):
             return ""
         return graph_source_fingerprint(connection, dataset)
@@ -183,30 +194,50 @@ def load_graph(store: Path, dataset: str, *, command: str = "fruitloops") -> Con
         raise SystemExit(f"missing {spec.table} in {store}; run `fruitloops setup --{dataset}`")
     path = graph_cache_path(store, dataset)
     meta = read_graph_meta(path)
-    if meta.get("fingerprint") != fingerprint:
-        reason = "stale" if meta else "missing"
-        print(f"{command}: {dataset} graph cache is {reason}; building {path}", file=sys.stderr)
-        build_graph_cache(store, dataset)
-    with np.load(path, allow_pickle=False) as data:
-        meta = json.loads(str(data["meta"]))
-        return ConnectomeGraph(
-            dataset=dataset,
-            ids=data["ids"],
-            pre=data["pre"],
-            post=data["post"],
-            synapses=data["synapses"],
-            region_pairs={region: data[f"{region}_pairs"] for region in GRAPH_REGIONS},
-            region_synapses={region: data[f"{region}_synapses"] for region in GRAPH_REGIONS},
-            input_synapses=data["input_synapses"],
-            meta=meta,
-        )
+    if meta.get("fingerprint") == fingerprint:
+        graph = read_graph(path, dataset)
+        if graph is not None:
+            return graph
+        state = "unreadable"
+    else:
+        state = cache_state(path, meta)
+    print(f"{command}: {dataset} graph cache is {state}; building {path}", file=sys.stderr)
+    build_graph_cache(store, dataset)
+    graph = read_graph(path, dataset)
+    if graph is None:
+        raise SystemExit(f"cannot read graph cache {path} after rebuilding it")
+    return graph
+
+
+def read_graph(path: Path, dataset: str) -> ConnectomeGraph | None:
+    try:
+        with np.load(path, allow_pickle=False) as data:
+            return ConnectomeGraph(
+                dataset=dataset,
+                ids=data["ids"],
+                pre=data["pre"],
+                post=data["post"],
+                synapses=data["synapses"],
+                region_pairs={region: data[f"{region}_pairs"] for region in GRAPH_REGIONS},
+                region_synapses={region: data[f"{region}_synapses"] for region in GRAPH_REGIONS},
+                input_synapses=data["input_synapses"],
+            )
+    except GRAPH_READ_ERRORS:
+        return None
+
+
+def cache_state(path: Path, meta: dict) -> str:
+    """'stale', 'unreadable', or 'missing' for a cache that does not match its source."""
+    if meta:
+        return "stale"
+    return "unreadable" if path.exists() else "missing"
 
 
 def graph_status(store: Path, dataset: str) -> dict[str, str]:
     path = graph_cache_path(store, dataset)
     meta = read_graph_meta(path)
     if not meta:
-        return {"name": dataset, "value": "missing", "path": str(path)}
+        return {"name": dataset, "value": cache_state(path, meta), "path": str(path)}
     state = "current" if meta.get("fingerprint") == current_source_fingerprint(store, dataset) else "stale"
     return {
         "name": dataset,

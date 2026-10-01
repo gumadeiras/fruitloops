@@ -277,6 +277,7 @@ def cmd_olfaction_outputs(args: argparse.Namespace, data) -> int:
 
 
 def cmd_olfaction_edges(args: argparse.Namespace, data) -> int:
+    ensure_query_annotations(args)
     rows = olfaction_edges(
         store=args.store,
         dataset=args.dataset,

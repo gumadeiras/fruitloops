@@ -84,10 +84,19 @@ fruitloops setup --csv --no-progress
 Setup prints progress to stderr while keeping the final summary on stdout.
 Re-running setup skips downloads, imports, optimization, derived olfaction
 tables, and graph caches when local source fingerprints still match the stored
-setup state. A graph cache rebuilds when its connection table changes.
-`olf` queries use the same state: when a connection or annotation table changed
-after the last olfaction build, the next query rebuilds the derived tables once
-and prints a note on stderr.
+setup state. A table counts as changed when its row count, its columns, or the
+file of its last import through fruitloops (`setup` or `admin bulk import`)
+changes. Edits made directly in DuckDB, for example an SQL `UPDATE`, are not
+detected; re-import the table instead.
+
+A graph cache rebuilds when its connection table changes. `olf` queries,
+including `olf edges`, use the same state: when a connection or annotation
+table changed after the last olfaction build, the next query rebuilds the
+derived tables once and prints a note on stderr. That rebuild keeps the
+datasets of the last build; run `setup` or `olf build` to change them.
+
+If the pinned FlyWire annotation download or its sha256 check fails, setup
+reports an `error` row and continues with the graph and olfaction stages.
 
 ## Annotation Caching
 

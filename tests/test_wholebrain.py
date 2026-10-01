@@ -406,6 +406,78 @@ class WholeBrainFixtureTest(unittest.TestCase):
         self.assertNotIn("graph cache", errors)
 
 
+    def test_orn_weighted_laterality_uses_antenna_side_seeds(self) -> None:
+        row = next(
+            row
+            for row in self.reach("--hops", "2", "--by-side", "--orn-family", "orco")
+            if row["target_type"] == "DNx01"
+        )
+        # Orco seeds: P1 gets 30 DA1 synapses from the left antenna; P2 gets 2 from each side.
+        p1_left, p2_side = 30 / 100, 2 / IN_P2
+        left_t1 = p1_left * (W_P1A * W_AT1 + W_P1B * W_BT1) + p2_side * W_P2B * W_BT1
+        left_t2 = (p1_left * W_P1B + p2_side * W_P2B) * W_BT2
+        right_t1, right_t2 = p2_side * W_P2B * W_BT1, p2_side * W_P2B * W_BT2
+        ipsi = left_t1 / 2 + right_t2
+        contra = left_t2 + right_t1 / 2
+
+        self.assertValue(row["ipsi"], ipsi)
+        self.assertValue(row["contra"], contra)
+        self.assertValue(row["ai"], (ipsi - contra) / (ipsi + contra))
+
+    def test_per_neuron_laterality_uses_soma_side_seeds(self) -> None:
+        row = next(row for row in self.reach("--hops", "2", "--by-side", "--per-neuron") if row["target_id"] == "31")
+
+        self.assertEqual(list(row.keys()), REACH_NEURON_COLUMNS + SIDE_COLUMNS)
+        self.assertValue(row["ipsi"], W_P1A * W_AT1 + W_P1B * W_BT1)
+        self.assertValue(row["contra"], W_P2B * W_BT1)
+
+    def test_ranked_paths_never_pass_through_the_target(self) -> None:
+        import duckdb
+
+        # The best path to U runs through T, so U's rank uses its best path that avoids T.
+        with duckdb.connect(str(self.store)) as connection:
+            connection.execute("DELETE FROM flywire_proofread_connections")
+            connection.executemany(
+                "INSERT INTO flywire_proofread_connections VALUES (?, ?, ?, ?)",
+                [(1, 31, "LH_L", 50), (31, 22, "LAL_L", 50), (22, 31, "LAL_L", 10), (21, 22, "LAL_L", 5), (1, 21, "LH_L", 10)],
+            )
+        rows = self.paths("--target-id", "31")
+
+        self.assertEqual([row["path_ids"] for row in rows], ["1 > 31", "1 > 21 > 22 > 31"])
+        self.assertValue(rows[0]["strength"], 50 / 60)
+        self.assertValue(rows[1]["strength"], 10 / 10 * 5 / 55 * 10 / 60)
+
+    def test_hop_limit_and_synapse_threshold_change_paths_not_denominators(self) -> None:
+        two_hops = self.paths("--target-id", "31", "--max-hops", "2", "--top", "1")
+        strict = self.paths("--target-id", "31", "--min-synapses", "16")
+
+        self.assertEqual(two_hops[0]["path_types"], "DA1_lPN > LHB > DNx01")
+        self.assertValue(two_hops[0]["strength"], W_P2B * W_BT1)
+        # MBON01 -> DNx01 (15 synapses) is dropped; the kept edges keep their weights.
+        self.assertEqual([row["path_types"] for row in strict], ["DA1_lPN > LHB > DNx01"])
+        self.assertValue(strict[0]["strength"], W_P2B * W_BT1)
+
+    def test_notes_for_excluded_sources_and_unconnected_targets(self) -> None:
+        base = ["--flywire", "--store", str(self.store)]
+        signed, _, signed_errors = run_cli_rows(
+            "paths", *base, "--source-type", "DAx", "--target-id", "33", "--signed", "--csv"
+        )
+        _, _, reach_errors = run_cli_rows(
+            "reach", *base, "--source-class", "ALPN", "--target-id", "34", "--hops", "2", "--csv"
+        )
+
+        self.assertEqual(signed, [])
+        self.assertIn("--signed excludes 1 source neurons without a fast-transmitter sign", signed_errors)
+        self.assertIn("1 target neurons have no connections in the flywire graph; their reach is 0", reach_errors)
+
+    def test_rejects_conflicting_datasets_and_invalid_limits(self) -> None:
+        conflict = cli_error("neurons", "--hemibrain", "--flywire", "--store", str(self.store), "--type", "DNx01")
+        limit = cli_error("neurons", "--flywire", "--store", str(self.store), "--type", "DNx01", "--limit", "0")
+
+        self.assertEqual(conflict, "2")
+        self.assertEqual(limit, "--limit must be at least 1")
+
+
 @unittest.skipUnless(HAS_DUCKDB, "duckdb not installed")
 class HemibrainPathsTest(unittest.TestCase):
     def test_hemibrain_paths_use_type_selectors_and_hemibrain_rois(self) -> None:
@@ -425,6 +497,7 @@ class HemibrainPathsTest(unittest.TestCase):
             orn_error = cli_error("paths", *base, "--source-type", "DA1_lPN", "--orn-family", "orco")
             signed_error = cli_error("paths", *base, "--source-type", "DA1_lPN", "--signed")
             side_error = cli_error("reach", *base, "--source-type", "DA1_lPN", "--by-side")
+            olf_name_error = cli_error("paths", *base, "--source-type", "PN")
 
         self.assertIn("graph cache is missing", errors)
         self.assertEqual([(row["route"], row["path_types"]) for row in rows], [
@@ -442,6 +515,8 @@ class HemibrainPathsTest(unittest.TestCase):
         self.assertIn("not supported for hemibrain", orn_error)
         self.assertIn("--signed is not supported for hemibrain", signed_error)
         self.assertIn("--by-side is not supported for hemibrain", side_error)
+        self.assertIn("no class annotations", olf_name_error)
+        self.assertIn("--source-type '*_*PN*'", olf_name_error)
 
 
 class AnnotationSourceTest(unittest.TestCase):

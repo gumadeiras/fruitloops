@@ -19,7 +19,9 @@
   that sets Kenyon cells to acetylcholine.
 - `fruitloops setup` now imports the FlyWire whole-brain neuron annotations
   (Schlegel et al. 2024) from a pinned commit with a sha256 check, and builds a
-  cached sparse graph per dataset that `fruitloops status` reports.
+  cached sparse graph per dataset that `fruitloops status` reports. If the
+  annotation download fails, setup reports an error row and still builds the
+  other stages.
 
 ### Fixes
 
@@ -32,6 +34,17 @@
 - `fruitloops olf build` and `fruitloops olf cache-annotations` now record
   their build, so the next query does not rebuild the tables again. Re-fetched
   annotation labels mark the tables stale even when the row count is the same.
+- `fruitloops admin bulk import` now records the imported file, so a manual
+  re-import with the same row count and columns marks the `olf` tables stale.
+- `fruitloops olf edges` now rebuilds stale olfaction tables like the other
+  `olf` queries.
+- A setup for one dataset no longer accepts olfaction tables that also hold
+  another dataset, so stale rows are no longer kept after alternating `setup`
+  and `setup --flywire`.
+- Conflicting dataset flags, such as `--hemibrain --flywire`, are now an error
+  instead of the last flag silently winning.
+- Read-only queries now stop with a clear message, instead of a traceback, when
+  another process holds the store's write lock.
 
 ### Changes
 
@@ -39,6 +52,13 @@
 - Olfaction tables without a recorded build, for example tables from
   `fruitloops olf build` in an earlier version, rebuild once on the next `olf`
   query.
+- A rebuild triggered by an `olf` query keeps the datasets of the last build;
+  run `fruitloops setup` or `fruitloops olf build` to change them.
+- Moved the DuckDB, setup-state, table-import, connection-table, and archive
+  helpers out of `fruitloops.bulk` into `fruitloops.duckdb_store`,
+  `fruitloops.setup_state`, `fruitloops.table_import`,
+  `fruitloops.connection_tables`, and `fruitloops.archives`. Python code that
+  imported them from `fruitloops.bulk` must import them from these modules.
 - `fruitloops admin bulk sources` now lists the pinned sha256 of each source
   that has one, and downloads of those sources are verified.
 - Moved downloaded bulk data and DuckDB state to the operating system's

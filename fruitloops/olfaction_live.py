@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .duckdb_store import DEFAULT_DUCKDB_PATH, require_duckdb, safe_identifier
+from .duckdb_store import DEFAULT_DUCKDB_PATH, require_duckdb, safe_identifier, table_exists
 from .olfaction import (
     CONNECTION_SPECS,
     FLYWIRE_HIERARCHICAL_TABLE,
@@ -13,7 +13,6 @@ from .olfaction import (
     HEMIBRAIN_OLFACTION_ORN_PN_TABLE,
     OLFACTION_PREFIX,
     build_olfaction_cache,
-    table_exists,
 )
 from .setup_state import sha256_json, write_setup_state
 

@@ -68,7 +68,8 @@ def glomerulus_families() -> dict[str, GlomerulusFamily]:
 
 
 def receptor_families() -> tuple[str, ...]:
-    present = {entry.family for entry in glomerulus_families().values()}
+    """Families with at least one verified glomerulus, so every choice can seed a query."""
+    present = {entry.family for entry in glomerulus_families().values() if entry.verified}
     return tuple(family for family in FAMILY_ORDER if family in present)
 
 

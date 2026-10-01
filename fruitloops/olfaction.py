@@ -7,7 +7,7 @@ from pathlib import Path
 from .duckdb_store import (
     DEFAULT_DUCKDB_PATH,
     require_duckdb,
-    result_rows,
+    run_sql,
     safe_identifier,
     table_exists,
     table_row_count,
@@ -224,9 +224,12 @@ def olfaction_cache_exists(connection, prefix: str) -> bool:
 def olfaction_cache_covers_datasets(connection, prefix: str, datasets: tuple[str, ...]) -> bool:
     if not table_exists(connection, f"{prefix}_provenance"):
         return False
-    # A dataset without its connection table adds no rows, so it has no provenance.
+    # The tables must hold exactly the selected datasets that have rows. A dataset without its
+    # connection table adds no rows, except hemibrain, whose cached ORN->PN table adds rows too.
     expected = {dataset for dataset in datasets if table_exists(connection, CONNECTION_SPECS[dataset].table)}
-    return expected.issubset(olfaction_provenance_datasets(connection, prefix))
+    if "hemibrain" in datasets and table_exists(connection, HEMIBRAIN_OLFACTION_ORN_PN_TABLE):
+        expected.add("hemibrain")
+    return expected == olfaction_provenance_datasets(connection, prefix)
 
 
 def olfaction_provenance_datasets(connection, prefix: str) -> set[str]:
@@ -842,7 +845,7 @@ def olfaction_neurons(
     ORDER BY total_synapses DESC, dataset, body_id
     LIMIT ?
     """
-    return read_sql(store, sql, params + [limit])
+    return run_sql(store, sql, params + [limit])
 
 
 def olfaction_edges(
@@ -876,7 +879,7 @@ def olfaction_edges(
     ORDER BY synapses DESC, dataset, pre_id, post_id
     LIMIT ?
     """
-    return read_sql(store, sql, params + [limit])
+    return run_sql(store, sql, params + [limit])
 
 
 def olfaction_pns(
@@ -914,7 +917,7 @@ def olfaction_class_summary(
     ORDER BY total_synapses DESC, neurons DESC, dataset, region, cell_class, glomerulus
     LIMIT ?
     """
-    return read_sql(store, sql, params + [limit])
+    return run_sql(store, sql, params + [limit])
 
 
 def olfaction_glomerulus_summary(
@@ -975,7 +978,7 @@ def olfaction_glomerulus_summary(
     ORDER BY orn_to_pn_synapses DESC, total_neurons DESC, n.dataset, n.glomerulus
     LIMIT ?
     """
-    return read_sql(store, sql, neuron_params + pathway_params + [limit])
+    return run_sql(store, sql, neuron_params + pathway_params + [limit])
 
 
 def olfaction_pathway_summary(
@@ -1020,7 +1023,7 @@ def olfaction_pathway_summary(
     ORDER BY synapses DESC, dataset, source_class, target_class
     LIMIT ?
     """
-    return read_sql(store, sql, params + [limit])
+    return run_sql(store, sql, params + [limit])
 
 
 def olfaction_input_summary(
@@ -1084,7 +1087,7 @@ def olfaction_input_summary(
     ORDER BY synapses DESC, dataset, target_id, source_class
     LIMIT ?
     """
-    return read_sql(store, sql, params + [limit])
+    return run_sql(store, sql, params + [limit])
 
 
 def olfaction_output_summary(
@@ -1148,7 +1151,7 @@ def olfaction_output_summary(
     ORDER BY synapses DESC, dataset, source_id, target_class
     LIMIT ?
     """
-    return read_sql(store, sql, params + [limit])
+    return run_sql(store, sql, params + [limit])
 
 
 def olfaction_orn_inputs(
@@ -1192,7 +1195,7 @@ def olfaction_orn_inputs(
     ORDER BY synapses DESC, e.dataset, p.body_id
     LIMIT ?
     """
-    return read_sql(store, sql, params + [limit])
+    return run_sql(store, sql, params + [limit])
 
 
 def summary_filters(
@@ -1278,10 +1281,3 @@ def neuron_filters(
         where.append("(body_id ILIKE ? OR primary_name ILIKE ? OR instance ILIKE ? OR aliases ILIKE ?)")
         params.extend([f"%{contains}%"] * 4)
     return (f"WHERE {' AND '.join(where)}" if where else ""), params
-
-
-def read_sql(store: Path, sql: str, params: list[str | int]) -> list[dict[str, str]]:
-    duckdb = require_duckdb("olfaction query")
-    with duckdb.connect(str(store), read_only=True) as connection:
-        result = connection.execute(sql, params)
-        return result_rows(result)

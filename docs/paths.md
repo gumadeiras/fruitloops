@@ -24,13 +24,25 @@ FlyWire setup imports two sources:
   commit `a83b2776d60d5764cef36b927f5f9679c16c47a2` of
   `flyconnectome/flywire_annotations`. Setup checks its sha256
   (`b214970b55d2fbe0853bba536fdcb9e28730f4eb7ab06f600491df795da683cd`) and
-  refuses a file that does not match.
+  refuses a file that does not match. If the download or the check fails,
+  setup reports an `error` row and still builds the graph and `olf` stages.
+  `neurons`, `paths`, and `reach` then stop until a later setup imports the
+  table.
 
 Setup then builds a sparse graph cache for each dataset, at
-`<store>.graphs/<dataset>.npz` next to the DuckDB store. The cache key is the
-fingerprint of the dataset's connection table. When that table changes, the
-next setup or query rebuilds the cache. `fruitloops status` lists each cache as
-`current`, `stale`, or `missing`.
+`<store stem>.graphs/<dataset>.npz` next to the DuckDB store, for example
+`fruitloops.graphs/flywire.npz`. The FlyWire cache is about 200 MB and builds
+in a few seconds; the hemibrain cache is about 53 MB. A build only reads the
+store.
+
+The cache records the fingerprint of the dataset's connection table: its row
+count, its columns, and the file of its last import through fruitloops
+(`setup` or `admin bulk import`). When the fingerprint changes, or the cache
+file is unreadable, the next setup or query rebuilds the cache. Edits made
+directly in DuckDB, for example an SQL `UPDATE`, do not change the fingerprint;
+re-import the table instead. `fruitloops status` lists each cache as `current`,
+`stale`, `unreadable`, or `missing`, or as `unavailable` while another process
+holds the store's write lock.
 
 The existing `olf` tables do not use the whole-brain annotations, so their
 output does not change.
@@ -55,7 +67,8 @@ neurons whose type starts with `DNa`.
 A selector that matches nothing stops the command with an error. For unknown
 names the error suggests close matches. If you pass an `olf` class name, the
 error gives the whole-brain equivalent: `PN` -> `ALPN`, `LN` -> `ALLN`,
-`KC` -> `Kenyon_Cell`, and `ORN` -> `olfactory`.
+`KC` -> `Kenyon_Cell`, and `ORN` -> `olfactory`. Hemibrain has no class
+annotations, so there the error names a type pattern instead.
 
 ```bash
 fruitloops neurons --flywire --type DNa02 --csv
@@ -124,7 +137,8 @@ All ORN synapses count, with no threshold.
   receptor family.
 - `--orn-glomerulus NAME`: one glomerulus, for example `DA1` or `VP2`.
 - `--orn-side left|right`: only ORNs from one antenna side. Use it with a
-  family or a glomerulus.
+  family or a glomerulus. `reach --by-side` sets the side itself, so it rejects
+  `--orn-side`.
 
 ORNs are FlyWire sensory neurons of type `ORN_<glomerulus>`,
 `TRN_<glomerulus>`, or `HRN_<glomerulus>`. Families come from the packaged
@@ -172,12 +186,15 @@ dopamine for most Kenyon cells.
 - `paths` always reports `sign` (the product over presynaptic neurons),
   `signed_strength`, and `transmitters`. With `--signed`, the search uses only
   presynaptic neurons with sign +1 or -1, so every path has a known sign.
+  Source neurons with sign 0 are left out, and a note on stderr gives their
+  count.
 - `reach --by-side` reports `signed_ipsi`, `signed_contra`, and `signed_net`
   (signed ipsi - signed contra).
 - Some types have neurons with different signs. For example, one il3LN6 neuron
   is predicted GABA and the other acetylcholine. Signs apply per neuron. The
   `sign_conflict_types` column of `paths` names such types on a path. To list
-  them all, run `fruitloops neurons --flywire --sign-conflicts`.
+  their neurons, run `fruitloops neurons --flywire --sign-conflicts`; it prints
+  at most `--limit` neurons (default 200).
 
 Hemibrain has no transmitter predictions offline, so `--signed` and `--by-side`
 are FlyWire-only.
@@ -192,6 +209,10 @@ ORN (antenna) side. Without it, the side is the source neuron's soma side.
 - contra = the same with the seed sides swapped.
 - AI = (ipsi - contra) / (ipsi + contra).
 
+ipsi and contra each add two side means, so they are not on the scale of
+`reach`. Seeds whose side is neither left nor right count in `reach` but in
+neither side. With ORN weighting, each side needs ORNs of the chosen
+glomeruli; a glomerulus with ORNs on one antenna side only stops the command.
 AI is empty when a type lacks neurons on one side or has no reach.
 
 ## Output Columns
@@ -200,7 +221,9 @@ AI is empty when a type lacks neurons on one side or has no reach.
 
 - `route`, `rank`, `hops`, `shortest_hops`, `strength`, `seed_weight`
 - target and source: `*_id`, `*_type`, `*_side`; `relation` (`ipsi` or
-  `contra` between the source and target sides)
+  `contra` between the source and target soma sides, `unknown` when either
+  side is missing). With ORN weighting, `relation` still uses the PN's soma
+  side, while `reach --by-side` uses the ORN side.
 - `path_types`, `path_ids`, `path_sides`
 - `step_synapses`, `step_weights`: per step, separated by ` > `. The first step
   uses the route's synapses.
@@ -208,8 +231,11 @@ AI is empty when a type lacks neurons on one side or has no reach.
 
 Rank 1 is the strongest path within `--max-hops`. Ranks 2 to `--top` are the
 strongest paths that reach the target through a different last presynaptic
-neuron. A target without a path within `--max-hops` has no rows, and a note on
-stderr gives the count.
+neuron. No path passes through the target before its last step: when the
+strongest path to a presynaptic neuron does, that neuron's strongest path
+that avoids the target is used. A target without a path within `--max-hops`
+has no rows. Notes on stderr count such targets and the targets that have no
+connections in the graph.
 
 `reach` returns one row per route, hop, and target type: `target_type`,
 `neurons`, `reach`, `rank`, `rank_of`. With `--per-neuron`, it returns one row

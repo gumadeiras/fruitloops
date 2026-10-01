@@ -113,3 +113,21 @@ def table_fingerprint(connection, table: str) -> str:
 def sha256_json(payload: dict | list) -> str:
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def setup_row(
+    dataset: str,
+    action: str,
+    target: str,
+    status: str,
+    path: Path | str,
+    store: Path,
+) -> dict[str, str]:
+    return {
+        "dataset": dataset,
+        "action": action,
+        "target": target,
+        "status": status,
+        "path": str(path),
+        "store": str(store),
+    }

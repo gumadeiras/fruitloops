@@ -21,6 +21,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from .filters import split_csv
 from .neuron_labels import NeuronLabels
 
 SELECTOR_KINDS = ("type", "class", "super-class", "id")
@@ -35,6 +36,7 @@ OLF_CLASS_EQUIVALENTS = {
     "APL": "--{prefix}type APL",
     "DAN": "--{prefix}class DAN",
 }
+TYPE_HINT = "select types with --{prefix}type, for example --{prefix}type '*_*PN*' for antennal-lobe PN types"
 
 
 @dataclass(frozen=True)
@@ -83,13 +85,9 @@ def add_selector_args(parser: argparse.ArgumentParser, prefix: str = "", role: s
 def selector_values(args: argparse.Namespace, prefix: str = "") -> dict[str, list[str]]:
     base = prefix.replace("-", "_")
     return {
-        kind: split_values(getattr(args, f"{base}{kind.replace('-', '_')}", []))
+        kind: [item for value in getattr(args, f"{base}{kind.replace('-', '_')}", []) for item in split_csv(value)]
         for kind in SELECTOR_KINDS
     }
-
-
-def split_values(values: list[str]) -> list[str]:
-    return [item.strip() for value in values for item in value.split(",") if item.strip()]
 
 
 def select_neurons(labels: NeuronLabels, values: dict[str, list[str]], prefix: str = "") -> Selection:
@@ -120,7 +118,7 @@ def match_kind(labels: NeuronLabels, kind: str, items: list[str], prefix: str) -
     if not labels.has_classes:
         raise SystemExit(
             f"{flag} is not available for {labels.dataset}: the compact export has no class annotations; "
-            f"select types with --{prefix}type, for example --{prefix}type '*_*PN*' for antennal-lobe PN types"
+            + TYPE_HINT.format(prefix=prefix)
         )
     field = "cell_class" if kind == "class" else "super_class"
     return match_names(labels, labels.field(field), items, flag, field, prefix, wildcards=False)
@@ -159,18 +157,18 @@ def match_names(
             if not matches:
                 raise SystemExit(
                     f"{flag} '{item}' matches no {labels.dataset} {vocabulary_name} names"
-                    f"{olf_hint(item, prefix)}"
+                    f"{olf_hint(item, prefix, labels.has_classes)}"
                 )
             selected.update(matches)
         elif item in known:
             selected.add(item)
         else:
-            raise SystemExit(unknown_name_message(labels.dataset, flag, item, vocabulary, vocabulary_name, prefix))
+            raise SystemExit(unknown_name_message(labels, flag, item, vocabulary, vocabulary_name, prefix))
     return np.isin(column, list(selected))
 
 
 def unknown_name_message(
-    dataset: str,
+    labels: NeuronLabels,
     flag: str,
     item: str,
     vocabulary: list[str],
@@ -181,8 +179,8 @@ def unknown_name_message(
     close = folded + [
         value for value in difflib.get_close_matches(item, vocabulary, n=5, cutoff=0.6) if value not in folded
     ]
-    message = f"{flag} '{item}' is not a {dataset} {vocabulary_name}"
-    hint = olf_hint(item, prefix)
+    message = f"{flag} '{item}' is not a {labels.dataset} {vocabulary_name}"
+    hint = olf_hint(item, prefix, labels.has_classes)
     if hint:
         return message + hint
     if close:
@@ -190,10 +188,14 @@ def unknown_name_message(
     return f"{message}; no close matches (names are case-sensitive)"
 
 
-def olf_hint(item: str, prefix: str) -> str:
+def olf_hint(item: str, prefix: str, has_classes: bool) -> str:
     equivalent = OLF_CLASS_EQUIVALENTS.get(item.upper())
     if not equivalent:
         return ""
+    if not has_classes:
+        return f"; {item} is an `olf` class name and this dataset has no class annotations; " + TYPE_HINT.format(
+            prefix=prefix
+        )
     return (
         f"; {item} is an `olf` class name. The whole-brain equivalent is "
         f"{equivalent.format(prefix=prefix)}"

@@ -12,10 +12,21 @@ from pathlib import Path
 import numpy as np
 
 from .curated import transmitter_overrides
-from .duckdb_store import require_duckdb, table_exists
+from .duckdb_store import connect_read_only, table_exists
+from .graph_cache import sorted_positions
 from .olfaction_labels import infer_side
 
 FLYWIRE_ANNOTATION_TABLE = "flywire_neuron_annotations"
+FLYWIRE_ANNOTATION_COLUMNS = (
+    "root_id",
+    "cell_type",
+    "side",
+    "super_class",
+    "cell_class",
+    "cell_sub_class",
+    "hemibrain_type",
+    "top_nt",
+)
 HEMIBRAIN_LABEL_TABLE = "hemibrain_traced_neurons"
 TRANSMITTER_SIGNS = {"acetylcholine": 1, "gaba": -1, "glutamate": -1}
 SENSORY_TYPE_PREFIXES = ("ORN_", "TRN_", "HRN_")
@@ -48,11 +59,7 @@ class NeuronLabels:
 
     def rows_for_ids(self, ids: np.ndarray) -> np.ndarray:
         """Label row for each id, or -1 when the id has no label row."""
-        ids = np.asarray(ids, dtype=np.int64)
-        if not len(self.ids):
-            return np.full(len(ids), -1, dtype=np.int64)
-        rows = np.searchsorted(self.ids, ids).clip(max=len(self.ids) - 1)
-        return np.where(self.ids[rows] == ids, rows, -1)
+        return sorted_positions(self.ids, ids)
 
     def display_types(self) -> np.ndarray:
         """Type name, or a bracketed class label for untyped neurons."""
@@ -97,8 +104,7 @@ class NeuronLabels:
 def load_neuron_labels(store: Path, dataset: str) -> NeuronLabels:
     if not store.exists():
         raise SystemExit(f"missing DuckDB store {store}; run `fruitloops setup --{dataset}`")
-    duckdb = require_duckdb("neuron labels")
-    with duckdb.connect(str(store), read_only=True) as connection:
+    with connect_read_only(store, "neuron labels") as connection:
         if dataset == "flywire":
             return load_flywire_labels(connection)
         if dataset == "hemibrain":
@@ -111,6 +117,13 @@ def load_flywire_labels(connection) -> NeuronLabels:
         raise SystemExit(
             f"missing {FLYWIRE_ANNOTATION_TABLE}; run `fruitloops setup --flywire` "
             "to import the pinned FlyWire whole-brain annotations"
+        )
+    columns = {row[0] for row in connection.execute(f"DESCRIBE {FLYWIRE_ANNOTATION_TABLE}").fetchall()}
+    missing = [column for column in FLYWIRE_ANNOTATION_COLUMNS if column not in columns]
+    if missing:
+        raise SystemExit(
+            f"{FLYWIRE_ANNOTATION_TABLE} lacks columns {', '.join(missing)}; "
+            "run `fruitloops setup --flywire` to import the pinned FlyWire annotation table"
         )
     result = connection.execute(
         f"""

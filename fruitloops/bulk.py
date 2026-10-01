@@ -11,7 +11,13 @@ from .archives import archive_stem, extract_archive_csvs
 from .connection_tables import optimize_connection_table
 from .duckdb_store import DEFAULT_DUCKDB_PATH, require_duckdb, safe_identifier
 from .paths import default_bulk_dir
-from .setup_state import SETUP_STATE_TABLE, file_fingerprint, setup_state_is_current, write_setup_state_for_store
+from .setup_state import (
+    SETUP_STATE_TABLE,
+    file_fingerprint,
+    setup_row,
+    setup_state_is_current,
+    write_setup_state_for_store,
+)
 from .table_import import import_to_duckdb
 
 DEFAULT_BULK_DIR = default_bulk_dir()
@@ -153,7 +159,12 @@ def setup_flywire_bulk(
     rows = setup_file_source_rows(source, bulk_dir, store, replace, skip_current=skip_current)
     rows.extend(setup_optimize_rows(source.dataset, source.table_name, "flywire", store, skip_current=skip_current))
     annotations = resolve_source("flywire", "neuron-annotations")
-    rows.extend(setup_file_source_rows(annotations, bulk_dir, store, replace, skip_current=skip_current))
+    try:
+        rows.extend(setup_file_source_rows(annotations, bulk_dir, store, replace, skip_current=skip_current))
+    except (OSError, ValueError) as error:
+        # Only the whole-brain commands need the annotations, so the graph and olf stages still run.
+        path = source_path(annotations, bulk_dir / "raw")
+        rows.append(setup_row(annotations.dataset, "download", annotations.kind, f"error: {error}", path, store))
     return rows
 
 
@@ -273,24 +284,6 @@ def setup_stage_status(row: dict[str, str]) -> str:
     if row.get("status") == "existing":
         return f"existing:{row.get('rows', '')}"
     return row.get("rows", "")
-
-
-def setup_row(
-    dataset: str,
-    action: str,
-    target: str,
-    status: str,
-    path: Path | str,
-    store: Path,
-) -> dict[str, str]:
-    return {
-        "dataset": dataset,
-        "action": action,
-        "target": target,
-        "status": status,
-        "path": str(path),
-        "store": str(store),
-    }
 
 
 def resolve_source(dataset: str, kind: str) -> BulkSource:

@@ -61,8 +61,7 @@ def import_to_duckdb(
         else:
             raise ValueError(f"unsupported import format: {path.suffix}")
         rows = connection.execute(f"SELECT count(*) FROM {table_name}").fetchone()[0]
-        if skip_current:
-            write_setup_state(connection, stage_key, fingerprint, str(rows))
+        write_setup_state(connection, stage_key, fingerprint, str(rows))
     return {"store": str(store), "table": table_name, "rows": str(rows), "status": "imported"}
 
 

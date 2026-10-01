@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from pathlib import Path
 
 from .paths import default_duckdb_path
@@ -16,21 +17,19 @@ def query_duckdb(
     where: list[tuple[str, str]],
     limit: int,
 ) -> list[dict[str, str]]:
-    duckdb = require_duckdb("query")
     table = safe_identifier(table)
     select_sql = ", ".join(safe_identifier(column) for column in select) if select else "*"
     where_sql, params = where_clause(where)
     sql = f"SELECT {select_sql} FROM {table}{where_sql} LIMIT ?"
     params.append(int(limit))
-    with duckdb.connect(str(store), read_only=True) as connection:
+    with connect_read_only(store, "query") as connection:
         result = connection.execute(sql, params)
         return result_rows(result)
 
 
 def schema_duckdb(store: Path, table: str) -> list[dict[str, str]]:
-    duckdb = require_duckdb("schema")
     table = safe_identifier(table)
-    with duckdb.connect(str(store), read_only=True) as connection:
+    with connect_read_only(store, "schema") as connection:
         rows = connection.execute(f"DESCRIBE {table}").fetchall()
     return [
         {
@@ -61,10 +60,23 @@ def table_row_count(connection, table: str) -> str:
 
 
 def run_sql(store: Path, sql: str, params: list[str | int]) -> list[dict[str, str]]:
-    duckdb = require_duckdb("query")
-    with duckdb.connect(str(store), read_only=True) as connection:
+    with connect_read_only(store, "query") as connection:
         result = connection.execute(sql, params)
         return result_rows(result)
+
+
+@contextmanager
+def connect_read_only(store: Path, action: str):
+    """Open ``store`` read-only; a lock held by another process stops the command with a clear message."""
+    duckdb = require_duckdb(action)
+    try:
+        connection = duckdb.connect(str(store), read_only=True)
+    except duckdb.IOException as error:
+        raise SystemExit(
+            f"cannot open {store} for {action}: {error}; another fruitloops process may be writing to it"
+        ) from error
+    with connection:
+        yield connection
 
 
 def require_duckdb(action: str):
@@ -90,20 +102,6 @@ def safe_identifier(value: str) -> str:
     if not cleaned or cleaned[0].isdigit():
         cleaned = f"t_{cleaned}"
     return cleaned
-
-
-def choose_column(
-    columns: list[str],
-    candidates: tuple[str, ...],
-    required: bool = True,
-) -> str:
-    lookup = {column.lower(): column for column in columns}
-    for candidate in candidates:
-        if candidate.lower() in lookup:
-            return lookup[candidate.lower()]
-    if required:
-        raise ValueError(f"could not infer column from candidates {candidates}; columns={columns}")
-    return ""
 
 
 def where_clause(where: list[tuple[str, str]]) -> tuple[str, list[str]]:
