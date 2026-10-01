@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.0 - 2026-10-01
+
 ### Features
 
 - Added `fruitloops neurons` to look up whole-brain FlyWire and hemibrain
