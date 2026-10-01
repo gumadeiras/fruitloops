@@ -10,7 +10,7 @@ from .formatting import emit_rows
 from .graph_analysis import ROUTES
 from .neuron_labels import load_neuron_labels
 from .selectors import add_selector_args, select_neurons, selector_values
-from .wholebrain_query import OrnSeedSpec, path_rows, prepare_query, reach_rows
+from .wholebrain_query import OrnSeedSpec, path_rows, prepare_query, reach_rows, type_path_rows
 
 PATH_COLUMNS = [
     "dataset",
@@ -36,6 +36,19 @@ PATH_COLUMNS = [
     "step_weights",
     "transmitters",
     "sign_conflict_types",
+]
+TYPE_PATH_COLUMNS = [
+    "dataset",
+    "route",
+    "target_type",
+    "rank",
+    "hops",
+    "path_types",
+    "strength",
+    "share",
+    "ipsi_share",
+    "signed_strength",
+    "step_synapses",
 ]
 REACH_TYPE_COLUMNS = ["dataset", "route", "hop", "target_type", "neurons", "reach", "rank", "rank_of"]
 REACH_NEURON_COLUMNS = [
@@ -108,6 +121,11 @@ def add_wholebrain_parsers(subparsers) -> None:
         "--signed",
         action="store_true",
         help="Search only paths whose presynaptic neurons have a known fast-transmitter sign (FlyWire).",
+    )
+    paths.add_argument(
+        "--by-type",
+        action="store_true",
+        help="Group paths by cell-type sequence and rank these type routes per target type.",
     )
     add_format_arg(paths)
     paths.set_defaults(func=cmd_paths)
@@ -198,6 +216,10 @@ def cmd_paths(args: argparse.Namespace, data) -> int:
         raise SystemExit("--top must be at least 1")
     context = build_query(args, "fruitloops paths")
     routes = list(dict.fromkeys(args.via or ["all"]))
+    if args.by_type:
+        rows = type_path_rows(context, routes, args.max_hops, args.top, args.signed)
+        emit_rows(rows, TYPE_PATH_COLUMNS, args.format)
+        return 0
     rows = path_rows(context, routes, args.max_hops, args.top, args.signed)
     emit_rows(rows, PATH_COLUMNS, args.format)
     return 0

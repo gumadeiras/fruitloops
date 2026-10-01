@@ -21,7 +21,13 @@ from fruitloops.bulk import (
     setup_flywire_bulk,
 )
 from fruitloops.cli import main
-from fruitloops.cli_wholebrain import PATH_COLUMNS, REACH_NEURON_COLUMNS, REACH_TYPE_COLUMNS, SIDE_COLUMNS
+from fruitloops.cli_wholebrain import (
+    PATH_COLUMNS,
+    REACH_NEURON_COLUMNS,
+    REACH_TYPE_COLUMNS,
+    SIDE_COLUMNS,
+    TYPE_PATH_COLUMNS,
+)
 from fruitloops.curated import family_glomeruli, glomerulus_families, transmitter_overrides
 from fruitloops.graph_cache import build_graph_cache, graph_cache_path
 from fruitloops.table_import import import_to_duckdb
@@ -470,6 +476,46 @@ class WholeBrainFixtureTest(unittest.TestCase):
         self.assertIn("--signed excludes 1 source neurons without a fast-transmitter sign", signed_errors)
         self.assertIn("1 target neurons have no connections in the flywire graph; their reach is 0", reach_errors)
 
+    def test_type_routes_sum_paths_with_the_same_type_sequence(self) -> None:
+        rows, text, _ = run_cli_rows(
+            "paths", "--flywire", "--store", str(self.store), "--source-class", "ALPN",
+            "--target-type", "DNx01", "--by-type", "--csv",
+        )
+        # LHB route: P1 and P2 both reach LHB neuron 22, which drives both DNx01 neurons 31 and 32.
+        lhb = (W_P1B + W_P2B) * (W_BT1 + W_BT2)
+        total = lhb + W_KM * W_MT1 + W_P1A * W_AT1 + W_P1A * W_AB * (W_BT1 + W_BT2)
+        ipsi = W_P1B * W_BT1 + W_P2B * W_BT2
+
+        self.assertEqual(text.splitlines()[0], ",".join(TYPE_PATH_COLUMNS))
+        self.assertEqual([row["path_types"] for row in rows], [
+            "DA1_lPN > LHB > DNx01",
+            "DA1_lPN > KCg > MBON01 > DNx01",
+            "DA1_lPN > LHA > DNx01",
+        ])
+        self.assertValue(rows[0]["strength"], lhb)
+        self.assertValue(rows[0]["share"], lhb / total)
+        self.assertValue(rows[0]["ipsi_share"], ipsi / lhb)
+        self.assertValue(rows[0]["signed_strength"], -lhb)
+        self.assertEqual(rows[0]["step_synapses"], "28 > 30")
+        self.assertValue(rows[1]["strength"], W_KM * W_MT1)
+        self.assertEqual(rows[1]["step_synapses"], "15 > 20 > 15")
+
+    def test_type_routes_of_one_length_add_up_to_reach(self) -> None:
+        routes, _, _ = run_cli_rows(
+            "paths", "--flywire", "--store", str(self.store), "--source-class", "ALPN",
+            "--target-type", "DNx01", "--by-type", "--max-hops", "2", "--top", "20", "--csv",
+        )
+        reach = self.reach("--hops", "2", "--per-neuron")
+        lh_routes = self.paths("--target-type", "DNx01", "--by-type", "--via", "LH", "--top", "1")
+
+        self.assertAlmostEqual(
+            sum(float(row["strength"]) for row in routes if row["hops"] == "2"),
+            sum(float(row["reach"]) for row in reach if row["target_type"] == "DNx01"),
+            places=6,
+        )
+        self.assertValue(lh_routes[0]["strength"], W_P1B_LH * (W_BT1 + W_BT2))
+        self.assertEqual(lh_routes[0]["step_synapses"], "6 > 30")
+
     def test_rejects_conflicting_datasets_and_invalid_limits(self) -> None:
         conflict = cli_error("neurons", "--hemibrain", "--flywire", "--store", str(self.store), "--type", "DNx01")
         limit = cli_error("neurons", "--flywire", "--store", str(self.store), "--type", "DNx01", "--limit", "0")
@@ -498,6 +544,7 @@ class HemibrainPathsTest(unittest.TestCase):
             signed_error = cli_error("paths", *base, "--source-type", "DA1_lPN", "--signed")
             side_error = cli_error("reach", *base, "--source-type", "DA1_lPN", "--by-side")
             olf_name_error = cli_error("paths", *base, "--source-type", "PN")
+            type_rows, _, _ = run_cli_rows("paths", *base, "--source-type", "*_*PN*", "--by-type", "--csv")
 
         self.assertIn("graph cache is missing", errors)
         self.assertEqual([(row["route"], row["path_types"]) for row in rows], [
@@ -516,6 +563,8 @@ class HemibrainPathsTest(unittest.TestCase):
         self.assertIn("--signed is not supported for hemibrain", signed_error)
         self.assertIn("--by-side is not supported for hemibrain", side_error)
         self.assertIn("no class annotations", olf_name_error)
+        self.assertEqual([row["path_types"] for row in type_rows], ["DA1_lPN > LHX > DNa02", "DA1_lPN > SMPX > DNa02"])
+        self.assertEqual(type_rows[0]["signed_strength"], "")
         self.assertIn("--source-type '*_*PN*'", olf_name_error)
 
 

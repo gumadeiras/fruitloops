@@ -237,6 +237,28 @@ that avoids the target is used. A target without a path within `--max-hops`
 has no rows. Notes on stderr count such targets and the targets that have no
 connections in the graph.
 
+`paths --by-type` groups paths by cell-type sequence. It returns one row per
+route, target type, and rank: `target_type`, `rank`, `hops`, `path_types`,
+`strength`, `share`, `ipsi_share`, `signed_strength`, `step_synapses`.
+
+- A type route's `strength` is the sum, over every path of its length whose
+  neurons have its types, of the product of weights (times the seed weight).
+  As in `reach`, paths may revisit neurons, so the strengths of all type routes
+  of length k add up to the hop-k reach summed over the target type's neurons.
+- `share` = strength / the summed strength of all paths of 1 to `--max-hops`
+  hops into the target type's neurons.
+- `ipsi_share` = the part of the strength from sources on the target neuron's
+  soma side, out of the part whose source and target sides are both known.
+- `signed_strength` sums the signed products over the same paths (FlyWire).
+- `step_synapses`: per step, the synapses between the neurons that the route's
+  paths pass through on their way to a target.
+- Untyped neurons are grouped under their bracketed label, such as `[central]`.
+
+The ranking is exact. The search expands a partial route only while the summed
+strength of all its completions, known from backward reach, can still beat the
+routes already found. Longer `--max-hops` costs more: 4 hops into all 473
+descending types take about 10 s.
+
 `reach` returns one row per route, hop, and target type: `target_type`,
 `neurons`, `reach`, `rank`, `rank_of`. With `--per-neuron`, it returns one row
 per target neuron instead. `--by-side` adds `left_neurons`, `right_neurons`,
@@ -291,6 +313,25 @@ fruitloops paths --flywire --source-class ALPN --target-type DNa03 \
 
 The right DNa03 path is DL1_adPN > KCapbp-ap1 > MBON31 > DNa03, with strength
 1.04604e-06 and sign -1 (MBON31 is GABAergic).
+
+Type routes from the PNs of one glomerulus, here DL5:
+
+```bash
+fruitloops paths --flywire --source-type DL5_adPN --target-type DNa02,DNa03 \
+  --by-type --max-hops 4 --top 5 --csv
+```
+
+The five strongest type routes into DNa03:
+
+| rank | path_types | strength | share | ipsi_share |
+| --- | --- | --- | --- | --- |
+| 1 | DL5_adPN > KCapbp-ap1 > MBON26 > LAL171,LAL172 > DNa03 | 8.49169e-06 | 0.102265 | 0.407737 |
+| 2 | DL5_adPN > KCapbp-ap1 > MBON31 > DNa03 | 7.67215e-06 | 0.092395 | 0.67436 |
+| 3 | DL5_adPN > KCapbp-ap1 > MBON26 > LAL051 > DNa03 | 6.78316e-06 | 0.0816888 | 0.339537 |
+| 4 | DL5_adPN > KCapbp-ap1 > MBON26 > DNa03 | 4.25752e-06 | 0.0512728 | 0.0443104 |
+| 5 | DL5_adPN > CB3185 > CRE011 > LAL112 > DNa03 | 3.06317e-06 | 0.0368894 | 0.606618 |
+
+Without `--by-type`, the same sources give the strongest single-neuron paths.
 
 Hop-2 reach and laterality of DNa02 among the 473 descending types:
 

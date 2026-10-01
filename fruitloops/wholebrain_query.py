@@ -27,6 +27,7 @@ from .graph_analysis import (
 from .graph_cache import ConnectomeGraph, load_graph
 from .neuron_labels import NeuronLabels, load_neuron_labels
 from .selectors import Selection, select_neurons
+from .type_routes import LEFT, OTHER, RIGHT, RouteGraph, route_synapses, strongest_type_routes
 
 SIDES = ("left", "right")
 
@@ -180,15 +181,32 @@ def route_edges(context: QueryContext, route: str, keep_pre: np.ndarray | None =
     return first_hop_edges(context.query, route, context.sources, context.kenyon, keep_pre)
 
 
+def signed_filter(context: QueryContext, signed: bool) -> np.ndarray | None:
+    """Presynaptic neurons that a ``--signed`` search may use, or None without ``--signed``."""
+    if not signed:
+        return None
+    unsigned = int((context.sources & (context.signs == 0)).sum())
+    if unsigned:
+        print(
+            f"{context.command}: --signed excludes {unsigned} source neurons without a fast-transmitter sign",
+            file=sys.stderr,
+        )
+    return context.signs != 0
+
+
+def report_missing(context: QueryContext, missing: int, max_hops: int, unit: str) -> None:
+    notes = []
+    if missing:
+        notes.append(f"no path within {max_hops} hops for {missing} {unit}")
+    absent = int((context.target_nodes < 0).sum())
+    if absent:
+        notes.append(f"{absent} target neurons have no connections in the {context.dataset} graph")
+    if notes:
+        print(f"{context.command}: {'; '.join(notes)}", file=sys.stderr)
+
+
 def path_rows(context: QueryContext, routes: list[str], max_hops: int, top: int, signed: bool) -> list[dict[str, str]]:
-    keep_pre = context.signs != 0 if signed else None
-    if signed:
-        unsigned = int((context.sources & (context.signs == 0)).sum())
-        if unsigned:
-            print(
-                f"{context.command}: --signed excludes {unsigned} source neurons without a fast-transmitter sign",
-                file=sys.stderr,
-            )
+    keep_pre = signed_filter(context, signed)
     relay = relay_edges(context.query, context.sources, keep_pre)
     conflicts = context.labels.sign_conflict_types()
     targets = sorted(
@@ -206,14 +224,49 @@ def path_rows(context: QueryContext, routes: list[str], max_hops: int, top: int,
             hops = shortest_hops(search, target)
             for rank, (cost, path) in enumerate(found, start=1):
                 rows.append(path_row(context, route, rank, cost, path, hops, first, relay, conflicts))
-    notes = []
-    if missing:
-        notes.append(f"no path within {max_hops} hops for {missing} target/route combinations")
-    absent = int((context.target_nodes < 0).sum())
-    if absent:
-        notes.append(f"{absent} target neurons have no connections in the {context.dataset} graph")
-    if notes:
-        print(f"{context.command}: {'; '.join(notes)}", file=sys.stderr)
+    report_missing(context, missing, max_hops, "target/route combinations")
+    return rows
+
+
+def type_path_rows(
+    context: QueryContext, routes: list[str], max_hops: int, top: int, signed: bool
+) -> list[dict[str, str]]:
+    """Strongest cell-type routes into each target type (``paths --by-type``)."""
+    keep_pre = signed_filter(context, signed)
+    relay = relay_edges(context.query, context.sources, keep_pre)
+    names, type_ids = np.unique(context.display.astype(str), return_inverse=True)
+    side_codes = np.select([context.sides == "left", context.sides == "right"], [LEFT, RIGHT], OTHER)
+    signs = context.signs.astype(np.float64)
+    target_nodes = np.unique(context.target_nodes[context.target_nodes >= 0])
+    rows, missing = [], 0
+    for route in routes:
+        first = route_edges(context, route, keep_pre)
+        graph = RouteGraph.build(first, relay, context.graph.size)
+        for target_type in np.unique(type_ids[target_nodes]):
+            targets = np.zeros(context.graph.size, dtype=bool)
+            targets[target_nodes[type_ids[target_nodes] == target_type]] = True
+            found, total = strongest_type_routes(
+                graph, context.seeds, type_ids, side_codes, signs, targets, max_hops, top
+            )
+            if not found:
+                missing += 1
+            for rank, item in enumerate(found, start=1):
+                sided = item.ipsi + item.contra
+                synapses = route_synapses(item.types, graph, context.seeds, type_ids, targets)
+                rows.append({
+                    "dataset": context.dataset,
+                    "route": route,
+                    "target_type": str(names[target_type]),
+                    "rank": str(rank),
+                    "hops": str(len(item.types) - 1),
+                    "path_types": " > ".join(str(names[type_id]) for type_id in item.types),
+                    "strength": f"{item.strength:.6g}",
+                    "share": f"{item.strength / total:.6g}",
+                    "ipsi_share": f"{item.ipsi / sided:.6g}" if sided > 0 else "",
+                    "signed_strength": f"{item.signed:.6g}" if context.has_signs else "",
+                    "step_synapses": " > ".join(str(count) for count in synapses),
+                })
+    report_missing(context, missing, max_hops, "target type/route combinations")
     return rows
 
 

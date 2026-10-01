@@ -248,10 +248,12 @@ fruitloops neurons --flywire --type DNa02 --csv
 fruitloops paths --flywire --source-class ALPN --target-type DNa02 --orn-family orco --via LH --top 1 --csv
 fruitloops reach --flywire --source-class ALPN --target-super-class descending --orn-family orco --hops 2 --by-side --csv
 fruitloops paths --hemibrain --source-type '*_*PN*' --target-type DNa02 --max-hops 2 --top 3 --csv
+fruitloops paths --flywire --source-type DL5_adPN --target-type DNa02,DNa03 --by-type --max-hops 4 --top 5 --csv
 ```
 
 `paths` ranks strongest paths (maximum product of input-fraction weights) and
-reports the fewest hops. `reach` ranks targets by hop-k reach. Both split by
+reports the fewest hops; `--by-type` ranks routes grouped by cell-type
+sequence instead. `reach` ranks targets by hop-k reach. Both split by
 first-hop route (`AL`, `LH`, `MB`, `other`, `kc`). They can seed PNs by their
 input from an ORN receptor family, glomerulus, or antenna side. Definitions,
 selector vocabulary, output columns, and a worked DNa02 recipe are in

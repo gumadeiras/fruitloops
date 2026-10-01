@@ -79,6 +79,7 @@ python3 -m fruitloops partners il3LN6 --hemibrain --pn --csv
 python3 -m fruitloops table comparison:matched_ln_class_similarity --contains LN_class=il3LN6 --json
 python3 -m fruitloops neurons --flywire --type DNa02 --csv
 python3 -m fruitloops paths --flywire --source-class ALPN --target-type DNa02 --orn-family orco --via LH --top 1 --csv
+python3 -m fruitloops paths --flywire --source-type DL5_adPN --target-type DNa02,DNa03 --by-type --max-hops 4 --top 5 --csv
 python3 -m fruitloops reach --flywire --source-class ALPN --target-super-class descending --orn-family orco --hops 2 --by-side --csv
 ```
 

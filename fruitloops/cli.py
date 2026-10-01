@@ -351,6 +351,7 @@ fruitloops olf pathway PN KC --region MB --flywire --csv
 fruitloops neurons --flywire --type DNa02 --csv
 fruitloops paths --flywire --source-class ALPN --target-type DNa02 --orn-family orco --via LH --top 1 --csv
 fruitloops paths --hemibrain --source-type '*_*PN*' --target-type DNa02 --max-hops 2 --top 3 --csv
+fruitloops paths --flywire --source-type DL5_adPN --target-type DNa02,DNa03 --by-type --max-hops 4 --top 5 --csv
 fruitloops reach --flywire --source-class ALPN --target-super-class descending --orn-family orco --hops 2 --by-side --csv
 fruitloops table --flywire --contains full_summary --csv
 fruitloops table comparison:matched_ln_class_similarity --schema --csv

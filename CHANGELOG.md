@@ -10,6 +10,10 @@
 - Added `fruitloops paths` to rank the strongest paths and report the fewest
   hops from source to target neurons, split by first-hop route (`AL`, `LH`,
   `MB`, `other`, `kc`), with optional ORN-weighted seeds and a signed search.
+- Added `fruitloops paths --by-type` to rank cell-type routes per target type.
+  A type route's strength sums all paths with that type sequence; rows also
+  give its share of all paths, the ipsilateral share, the signed strength, and
+  the synapses at each step.
 - Added `fruitloops reach` to rank target types or neurons by hop-k reach, by
   route and by side, with a laterality index and signed ipsi-minus-contra net.
 - Added ORN seed weighting by receptor family, glomerulus, and antenna side,
