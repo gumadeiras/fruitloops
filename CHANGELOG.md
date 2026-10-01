@@ -25,8 +25,6 @@
 
 ### Fixes
 
-- Applied Fruitloops storage path overrides loaded through `--env-file` before
-  resolving CLI defaults.
 - `fruitloops olf` queries rebuild the derived olfaction tables only when a
   connection or annotation table changed after the last build. Before, a query
   after a single-dataset setup could rebuild on every run, or report a rebuild
@@ -61,6 +59,16 @@
   imported them from `fruitloops.bulk` must import them from these modules.
 - `fruitloops admin bulk sources` now lists the pinned sha256 of each source
   that has one, and downloads of those sources are verified.
+
+## 0.1.11 - 2026-07-11
+
+### Fixes
+
+- Applied Fruitloops storage path overrides loaded through `--env-file` before
+  resolving CLI defaults.
+
+### Changes
+
 - Moved downloaded bulk data and DuckDB state to the operating system's
   application-data directory, and live-query responses to its cache directory,
   instead of using checkout-local or Unix-only defaults.
