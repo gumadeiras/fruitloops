@@ -123,7 +123,7 @@ def add_bulk_partner_args(parser: argparse.ArgumentParser) -> None:
 
 def cmd_bulk_sources(args: argparse.Namespace, data) -> int:
     rows = list_sources()
-    columns = ["dataset", "kind", "format", "filename", "table_name", "description", "url"]
+    columns = ["dataset", "kind", "format", "filename", "table_name", "description", "url", "sha256"]
     emit_rows(rows, columns, args.format)
     return 0
 

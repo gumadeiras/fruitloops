@@ -1,0 +1,2 @@
+dataset,field,value,transmitter,source,doi,note
+flywire,cell_class,Kenyon_Cell,acetylcholine,Barnstedt et al. 2016,10.1016/j.neuron.2016.02.015,Kenyon cells are cholinergic; the FlyWire classifier predicts dopamine for most Kenyon cells.

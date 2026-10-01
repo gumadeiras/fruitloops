@@ -32,6 +32,7 @@ from .live import (
     parse_ints,
 )
 from .cli_olfaction import add_olfaction_parser
+from .cli_wholebrain import add_wholebrain_parsers
 from .plotting import PlotSpec, render_plot
 from .paths import default_bulk_dir, default_duckdb_path, default_live_cache_dir
 
@@ -71,12 +72,15 @@ def main(argv: list[str] | None = None) -> int:
         help="Optional env file for live database credentials. Defaults to .env.",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
-    primary_commands = ("status", "setup", "olf", "table", "find", "partners", "examples", "admin")
+    primary_commands = (
+        "status", "setup", "olf", "neurons", "paths", "reach", "table", "find", "partners", "examples", "admin",
+    )
     subparsers = parser.add_subparsers(dest="command", metavar="{" + ",".join(primary_commands) + "}")
 
     add_status_parser(subparsers)
     add_setup_parser(subparsers)
     add_olfaction_parser(subparsers, name="olf")
+    add_wholebrain_parsers(subparsers)
     add_table_parser(subparsers)
 
     find = subparsers.add_parser("find", help="Find LN rows across common summary tables.")
@@ -344,6 +348,10 @@ fruitloops olf pns --glomerulus DM1 --hemibrain --csv
 fruitloops olf inputs --target-class PN --source-class ORN --glomerulus DM1 --by-side --csv
 fruitloops olf outputs --source-class PN --target-class KC --region MB --flywire --csv
 fruitloops olf pathway PN KC --region MB --flywire --csv
+fruitloops neurons --flywire --type DNa02 --csv
+fruitloops paths --flywire --source-class ALPN --target-type DNa02 --orn-family orco --via LH --top 1 --csv
+fruitloops paths --hemibrain --source-type '*_*PN*' --target-type DNa02 --max-hops 2 --top 3 --csv
+fruitloops reach --flywire --source-class ALPN --target-super-class descending --orn-family orco --hops 2 --by-side --csv
 fruitloops table --flywire --contains full_summary --csv
 fruitloops table comparison:matched_ln_class_similarity --schema --csv
 fruitloops table comparison:matched_ln_class_similarity --contains LN_class=il3LN6 --json
@@ -622,6 +630,9 @@ def command_uses_no_manifest(args: argparse.Namespace) -> bool:
         "admin",
         "examples",
         "locations",
+        "neurons",
+        "paths",
+        "reach",
         "setup",
         "live",
         "offline",

@@ -17,6 +17,7 @@ dependencies = [
     "neuprint-python",
     "pandas>=2",
     "pyarrow>=14",
+    "scipy>=1.10",
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
@@ -32,3 +33,6 @@ fruitloops = "fruitloops.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["fruitloops*"]
+
+[tool.setuptools.package-data]
+fruitloops = ["curated/*.csv"]

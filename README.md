@@ -235,7 +235,27 @@ fruitloops table comparison:matched_ln_class_similarity --contains LN_class=il3L
 
 Legacy commands such as `datasets`, `files`, `schema`, `head`, `query`,
 `aggregate`, and `ln` remain available for scripts. New interactive use should
-prefer `status`, `setup`, `olf`, `table`, `find`, `partners`, and `examples`.
+prefer `status`, `setup`, `olf`, `neurons`, `paths`, `reach`, `table`, `find`,
+`partners`, and `examples`.
+
+## Whole-Brain Paths and Reach
+
+After `fruitloops setup`, `neurons`, `paths`, and `reach` query the whole
+FlyWire v783 and hemibrain v1.2 graphs offline:
+
+```bash
+fruitloops neurons --flywire --type DNa02 --csv
+fruitloops paths --flywire --source-class ALPN --target-type DNa02 --orn-family orco --via LH --top 1 --csv
+fruitloops reach --flywire --source-class ALPN --target-super-class descending --orn-family orco --hops 2 --by-side --csv
+fruitloops paths --hemibrain --source-type '*_*PN*' --target-type DNa02 --max-hops 2 --top 3 --csv
+```
+
+`paths` ranks strongest paths (maximum product of input-fraction weights) and
+reports the fewest hops. `reach` ranks targets by hop-k reach. Both split by
+first-hop route (`AL`, `LH`, `MB`, `other`, `kc`). They can seed PNs by their
+input from an ORN receptor family, glomerulus, or antenna side. Definitions,
+selector vocabulary, output columns, and a worked DNa02 recipe are in
+[docs/paths.md](docs/paths.md).
 
 ## Olfaction Offline Cache
 

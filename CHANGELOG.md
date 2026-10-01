@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### Features
+
+- Added `fruitloops neurons` to look up whole-brain FlyWire and hemibrain
+  neurons by cell type (with wildcards), class, super class, or id, including
+  descending, LAL, and PFL types.
+- Added `fruitloops paths` to rank the strongest paths and report the fewest
+  hops from source to target neurons, split by first-hop route (`AL`, `LH`,
+  `MB`, `other`, `kc`), with optional ORN-weighted seeds and a signed search.
+- Added `fruitloops reach` to rank target types or neurons by hop-k reach, by
+  route and by side, with a laterality index and signed ipsi-minus-contra net.
+- Added ORN seed weighting by receptor family, glomerulus, and antenna side,
+  using a packaged glomerulus receptor-family table that cites a primary
+  source for each assignment.
+- Added transmitter signs from FlyWire predictions, with a packaged override
+  that sets Kenyon cells to acetylcholine.
+- `fruitloops setup` now imports the FlyWire whole-brain neuron annotations
+  (Schlegel et al. 2024) from a pinned commit with a sha256 check, and builds a
+  cached sparse graph per dataset that `fruitloops status` reports.
+
 ### Fixes
 
 - Applied Fruitloops storage path overrides loaded through `--env-file` before
@@ -9,6 +28,9 @@
 
 ### Changes
 
+- Added `scipy` as a runtime dependency.
+- `fruitloops admin bulk sources` now lists the pinned sha256 of each source
+  that has one, and downloads of those sources are verified.
 - Moved downloaded bulk data and DuckDB state to the operating system's
   application-data directory, and live-query responses to its cache directory,
   instead of using checkout-local or Unix-only defaults.

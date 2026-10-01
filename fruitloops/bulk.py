@@ -33,6 +33,7 @@ POST_COLUMNS = (
 )
 WEIGHT_COLUMNS = ("n_synapses", "syn_count", "weight", "count", "synapses")
 ROI_COLUMNS = ("neuropil", "roi", "ROI", "region")
+FLYWIRE_ANNOTATIONS_COMMIT = "a83b2776d60d5764cef36b927f5f9679c16c47a2"
 
 
 @dataclass(frozen=True)
@@ -44,6 +45,7 @@ class BulkSource:
     format: str
     table_name: str
     description: str
+    sha256: str = ""
 
 
 BULK_SOURCES = {
@@ -86,6 +88,19 @@ BULK_SOURCES = {
             description="FlyWire postsynapse counts per neuron and neuropil.",
         ),
         BulkSource(
+            dataset="flywire",
+            kind="neuron-annotations",
+            url=(
+                "https://raw.githubusercontent.com/flyconnectome/flywire_annotations/"
+                f"{FLYWIRE_ANNOTATIONS_COMMIT}/supplemental_files/Supplemental_file1_neuron_annotations.tsv"
+            ),
+            filename="Supplemental_file1_neuron_annotations.tsv",
+            format="tsv",
+            table_name="flywire_neuron_annotations",
+            description="FlyWire v783 whole-brain neuron annotations (Schlegel et al. 2024), pinned commit.",
+            sha256="b214970b55d2fbe0853bba536fdcb9e28730f4eb7ab06f600491df795da683cd",
+        ),
+        BulkSource(
             dataset="hemibrain",
             kind="compact-adjacencies",
             url="https://storage.googleapis.com/hemibrain/v1.2/exported-traced-adjacencies-v1.2.tar.gz",
@@ -122,6 +137,7 @@ def list_sources() -> list[dict[str, str]]:
             "table_name": source.table_name,
             "description": source.description,
             "url": source.url,
+            "sha256": source.sha256,
         }
         for source in sorted(BULK_SOURCES.values(), key=lambda item: (item.dataset, item.kind))
     ]
@@ -152,15 +168,27 @@ def setup_flywire_bulk(
     skip_current: bool = False,
 ) -> list[dict[str, str]]:
     source = resolve_source("flywire", "proofread-connections")
-    rows = []
-    expected_path = source_path(source, bulk_dir / "raw")
-    download_was_current = expected_path.exists()
+    rows = setup_file_source_rows(source, bulk_dir, store, replace, skip_current=skip_current)
+    rows.extend(setup_optimize_rows(source.dataset, source.table_name, "flywire", store, skip_current=skip_current))
+    annotations = resolve_source("flywire", "neuron-annotations")
+    rows.extend(setup_file_source_rows(annotations, bulk_dir, store, replace, skip_current=skip_current))
+    return rows
+
+
+def setup_file_source_rows(
+    source: BulkSource,
+    bulk_dir: Path,
+    store: Path,
+    replace: bool,
+    *,
+    skip_current: bool = False,
+) -> list[dict[str, str]]:
+    download_was_current = source_path(source, bulk_dir / "raw").exists()
     path = download_source(
         dataset=source.dataset,
         kind=source.kind,
         output_dir=bulk_dir / "raw",
     )
-    rows.append(setup_row(source.dataset, "download", source.kind, "current" if download_was_current else "ok", path, store))
     imported = import_to_duckdb(
         path=path,
         table_name=source.table_name,
@@ -168,9 +196,10 @@ def setup_flywire_bulk(
         replace=replace,
         skip_current=skip_current,
     )
-    rows.append(setup_row(source.dataset, "import", imported["table"], setup_stage_status(imported), path, store))
-    rows.extend(setup_optimize_rows(source.dataset, source.table_name, "flywire", store, skip_current=skip_current))
-    return rows
+    return [
+        setup_row(source.dataset, "download", source.kind, "current" if download_was_current else "ok", path, store),
+        setup_row(source.dataset, "import", imported["table"], setup_stage_status(imported), path, store),
+    ]
 
 
 def setup_hemibrain_bulk(
@@ -301,13 +330,33 @@ def download_source(
     path = source_path(source, output_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists() and not force:
+        verify_source_sha256(path, source)
         return path
     tmp_path = path.with_suffix(path.suffix + ".part")
     with urllib.request.urlopen(source.url) as response, tmp_path.open("wb") as handle:
         shutil.copyfileobj(response, handle)
+    try:
+        verify_source_sha256(tmp_path, source)
+    except ValueError:
+        tmp_path.unlink()
+        raise
     tmp_path.replace(path)
     write_download_metadata(path, source)
     return path
+
+
+def verify_source_sha256(path: Path, source: BulkSource) -> None:
+    if not source.sha256:
+        return
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    if digest.hexdigest() != source.sha256:
+        raise ValueError(
+            f"sha256 mismatch for {source.dataset}:{source.kind} at {path}: "
+            f"expected {source.sha256}, got {digest.hexdigest()}; delete the file and rerun setup"
+        )
 
 
 def source_path(source: BulkSource, output_dir: Path) -> Path:
@@ -358,6 +407,12 @@ def import_to_duckdb(
         if path.suffix == ".csv":
             connection.execute(
                 f"CREATE TABLE {table_name} AS SELECT * FROM read_csv_auto(?)",
+                [str(path)],
+            )
+        elif path.suffix == ".tsv":
+            connection.execute(
+                f"CREATE TABLE {table_name} AS "
+                "SELECT * FROM read_csv_auto(?, delim = '\t', header = true, sample_size = -1)",
                 [str(path)],
             )
         elif path.suffix == ".parquet":
@@ -473,7 +528,8 @@ def setup_state_matches(connection, stage_key: str, source_fingerprint: str) -> 
 
 
 def setup_state_fingerprint(connection, stage_key: str) -> str:
-    ensure_setup_state(connection)
+    if not table_exists(connection, SETUP_STATE_TABLE):
+        return ""
     row = connection.execute(
         f"""
         SELECT source_fingerprint

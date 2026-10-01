@@ -8,6 +8,7 @@ from .cache import list_cache
 from .cli_helpers import add_format_arg
 from .data import FruitloopsData, default_data_dir
 from .formatting import emit_rows
+from .graph_cache import GRAPH_DATASETS, graph_status
 from .olfaction import olfaction_tables
 from .paths import default_bulk_dir, default_duckdb_path, default_live_cache_dir
 
@@ -52,6 +53,18 @@ def status_overview_rows(data: FruitloopsData, cache_dir: Path, store: Path) -> 
         }
         for dataset, count in data.datasets().items()
     )
+    rows.extend(graph_status_rows(store))
+    return rows
+
+
+def graph_status_rows(store: Path) -> list[dict[str, str]]:
+    rows = []
+    for dataset in GRAPH_DATASETS:
+        try:
+            status = graph_status(store, dataset)
+        except SystemExit as error:
+            status = {"name": dataset, "value": f"unavailable: {error}", "path": str(store)}
+        rows.append(status_row("graph", status["name"], status["value"], Path(status["path"])))
     return rows
 
 

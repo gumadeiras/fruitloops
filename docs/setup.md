@@ -41,7 +41,10 @@ fruitloops setup
 
 Setup downloads/imports practical bulk connection tables, creates the DuckDB
 store, creates the live cache directory, optimizes imported tables, and builds
-derived `olf_*` tables.
+derived `olf_*` tables. FlyWire setup also imports the pinned whole-brain
+neuron annotation table (`flywire_neuron_annotations`). Each dataset also gets
+a sparse graph cache for `paths` and `reach`; see
+[docs/paths.md](paths.md).
 
 Common variants:
 
@@ -79,8 +82,9 @@ fruitloops setup --csv --no-progress
 - `--progress` / `--no-progress`: progress updates on stderr.
 
 Setup prints progress to stderr while keeping the final summary on stdout.
-Re-running setup skips downloads, imports, optimization, and derived olfaction
-tables when local source fingerprints still match the stored setup state.
+Re-running setup skips downloads, imports, optimization, derived olfaction
+tables, and graph caches when local source fingerprints still match the stored
+setup state. A graph cache rebuilds when its connection table changes.
 
 ## Annotation Caching
 
@@ -217,6 +221,12 @@ Download practical FlyWire connectivity:
 
 ```bash
 fruitloops admin bulk download --dataset flywire --kind proofread-connections
+```
+
+FlyWire whole-brain annotations, pinned to a commit and checked by sha256:
+
+```bash
+fruitloops admin bulk download --dataset flywire --kind neuron-annotations
 ```
 
 Optional larger downloads:

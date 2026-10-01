@@ -18,7 +18,7 @@ and FlyWire. Prefer local data before live APIs.
 - Use `.env.example` for required env names.
 - Use `python3 -m fruitloops ...` from repo root.
 - Prefer CSV/JSON/JSONL output for downstream analysis.
-- Prefer top-level `status`, `setup`, `olf`, `table`, `find`, `partners`, and `examples`.
+- Prefer top-level `status`, `setup`, `olf`, `neurons`, `paths`, `reach`, `table`, `find`, `partners`, and `examples`.
 - Use `admin` for advanced commands: `bulk`, `live`, `offline`, and `plot`.
 - Do not install extras; one editable install includes runtime dependencies: `python3 -m pip install -e .`.
 - Run `python3 -m fruitloops setup` to create cache dirs, import practical bulk tables, and build olfaction tables.
@@ -77,7 +77,13 @@ python3 -m fruitloops find il3LN6 --flywire --json
 python3 -m fruitloops partners il3LN6 --flywire --orn --csv
 python3 -m fruitloops partners il3LN6 --hemibrain --pn --csv
 python3 -m fruitloops table comparison:matched_ln_class_similarity --contains LN_class=il3LN6 --json
+python3 -m fruitloops neurons --flywire --type DNa02 --csv
+python3 -m fruitloops paths --flywire --source-class ALPN --target-type DNa02 --orn-family orco --via LH --top 1 --csv
+python3 -m fruitloops reach --flywire --source-class ALPN --target-super-class descending --orn-family orco --hops 2 --by-side --csv
 ```
+
+Use `neurons`, `paths`, and `reach` for whole-brain route questions; definitions
+and selector vocabulary are in `docs/paths.md`.
 
 ## Olfaction Cache
 

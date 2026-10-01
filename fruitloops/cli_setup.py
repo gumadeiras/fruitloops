@@ -9,6 +9,7 @@ from .bulk import setup_practical_bulk
 from .cli_helpers import add_dataset_filter_arg, add_format_arg, unique_values
 from .data import FruitloopsData
 from .formatting import emit_rows
+from .graph_cache import build_graph_cache
 from .olfaction import build_olfaction_cache
 from .olfaction_live import annotation_error_row, cache_olfaction_annotations
 
@@ -67,6 +68,8 @@ def cmd_setup(args: argparse.Namespace, data: FruitloopsData | None) -> int:
                 skip_current=True,
             )
         )
+        progress.detail(f"{dataset}: build sparse graph cache")
+        bulk_rows.append(build_graph_cache(args.store, dataset, skip_current=True))
     rows.extend(normalize_bulk_setup_rows(bulk_rows))
     progress.step("build derived olfaction tables")
     olfaction_rows = build_olfaction_cache(
@@ -134,6 +137,11 @@ class SetupProgress:
         if not self.enabled:
             return
         self.current += 1
+        print(f"fruitloops setup [{self.current}/{self.total}] {message}", file=self.stream, flush=True)
+
+    def detail(self, message: str) -> None:
+        if not self.enabled:
+            return
         print(f"fruitloops setup [{self.current}/{self.total}] {message}", file=self.stream, flush=True)
 
     def finish(self, message: str) -> None:
