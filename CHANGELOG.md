@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.2 - 2026-10-02
+
 ### Fixes
 
 - `fruitloops setup --flywire` and `fruitloops setup --hemibrain` no longer
