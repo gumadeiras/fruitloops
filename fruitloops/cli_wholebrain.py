@@ -93,7 +93,7 @@ def add_wholebrain_parsers(subparsers) -> None:
     neurons.add_argument(
         "--sign-conflicts",
         action="store_true",
-        help="Only neurons of FlyWire types whose neurons have different transmitter signs.",
+        help="Only neurons of types whose neurons have different transmitter signs.",
     )
     neurons.add_argument("--limit", type=int, default=200)
     add_format_arg(neurons)
@@ -120,7 +120,7 @@ def add_wholebrain_parsers(subparsers) -> None:
     paths.add_argument(
         "--signed",
         action="store_true",
-        help="Search only paths whose presynaptic neurons have a known fast-transmitter sign (FlyWire).",
+        help="Search only paths whose presynaptic neurons have a known fast-transmitter sign.",
     )
     paths.add_argument(
         "--by-type",
@@ -145,7 +145,7 @@ def add_wholebrain_parsers(subparsers) -> None:
     reach.add_argument(
         "--by-side",
         action="store_true",
-        help="Add ipsi/contra reach, laterality index, and signed net ipsi - contra (FlyWire).",
+        help="Add ipsi/contra reach, laterality index, and signed net ipsi - contra.",
     )
     reach.add_argument("--per-neuron", action="store_true", help="One row per target neuron instead of per type.")
     add_format_arg(reach)
@@ -207,9 +207,6 @@ def build_query(args: argparse.Namespace, command: str):
 
 
 def cmd_paths(args: argparse.Namespace, data) -> int:
-    dataset = require_dataset(args)
-    if args.signed:
-        require_flywire_option(dataset, "--signed", "the compact export has no transmitter predictions")
     if not 1 <= args.max_hops <= MAX_HOPS_LIMIT:
         raise SystemExit(f"--max-hops must be between 1 and {MAX_HOPS_LIMIT}")
     if args.top < 1:
@@ -228,14 +225,8 @@ def cmd_paths(args: argparse.Namespace, data) -> int:
 def cmd_reach(args: argparse.Namespace, data) -> int:
     dataset = require_dataset(args)
     hops = parse_hops(args.hops)
-    if args.by_side:
-        require_flywire_option(
-            dataset,
-            "--by-side",
-            "laterality needs bilateral sources and transmitter signs, which the compact export lacks",
-        )
-        if args.orn_side:
-            raise SystemExit("--by-side compares left and right seeds; drop --orn-side")
+    if args.by_side and args.orn_side:
+        raise SystemExit("--by-side compares left and right seeds; drop --orn-side")
     context = build_query(args, "fruitloops reach")
     routes = list(ROUTES) if args.by_route else ["all"]
     rows = reach_rows(context, routes, hops, per_neuron=args.per_neuron, by_side=args.by_side)
@@ -267,8 +258,6 @@ def cmd_neurons(args: argparse.Namespace, data) -> int:
     if args.limit < 1:
         raise SystemExit("--limit must be at least 1")
     labels = load_neuron_labels(args.store, dataset)
-    if args.sign_conflicts and not labels.has_transmitters:
-        raise SystemExit(f"--sign-conflicts needs transmitter predictions; {dataset} has none offline")
     conflicts = labels.sign_conflict_types()
     values = selector_values(args)
     if any(values.values()) or not args.sign_conflicts:
@@ -290,8 +279,6 @@ def neuron_row(labels, row: int, conflicts: set[str]) -> dict[str, str]:
     out = {"dataset": labels.dataset, "id": str(int(labels.ids[row]))}
     for name in NEURON_COLUMNS[2:-2]:
         out[name] = str(labels.field(name)[row])
-    out["sign"] = str(int(labels.sign[row])) if labels.has_transmitters else ""
-    out["type_sign_conflict"] = (
-        str(labels.field("type")[row] in conflicts).lower() if labels.has_transmitters else ""
-    )
+    out["sign"] = str(int(labels.sign[row]))
+    out["type_sign_conflict"] = str(labels.field("type")[row] in conflicts).lower()
     return out

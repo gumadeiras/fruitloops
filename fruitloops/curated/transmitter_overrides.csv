@@ -1,2 +1,16 @@
 dataset,field,value,transmitter,source,doi,note
 flywire,cell_class,Kenyon_Cell,acetylcholine,Barnstedt et al. 2016,10.1016/j.neuron.2016.02.015,Kenyon cells are cholinergic; the FlyWire classifier predicts dopamine for most Kenyon cells.
+hemibrain,type,KCa'b'-ap1,acetylcholine,Barnstedt et al. 2016,10.1016/j.neuron.2016.02.015,Kenyon cells are cholinergic; the hemibrain classifier predicts dopamine for all hemibrain Kenyon cells.
+hemibrain,type,KCa'b'-ap2,acetylcholine,Barnstedt et al. 2016,10.1016/j.neuron.2016.02.015,Kenyon cells are cholinergic; the hemibrain classifier predicts dopamine for all hemibrain Kenyon cells.
+hemibrain,type,KCa'b'-m,acetylcholine,Barnstedt et al. 2016,10.1016/j.neuron.2016.02.015,Kenyon cells are cholinergic; the hemibrain classifier predicts dopamine for all hemibrain Kenyon cells.
+hemibrain,type,KCab-c,acetylcholine,Barnstedt et al. 2016,10.1016/j.neuron.2016.02.015,Kenyon cells are cholinergic; the hemibrain classifier predicts dopamine for all hemibrain Kenyon cells.
+hemibrain,type,KCab-m,acetylcholine,Barnstedt et al. 2016,10.1016/j.neuron.2016.02.015,Kenyon cells are cholinergic; the hemibrain classifier predicts dopamine for all hemibrain Kenyon cells.
+hemibrain,type,KCab-p,acetylcholine,Barnstedt et al. 2016,10.1016/j.neuron.2016.02.015,Kenyon cells are cholinergic; the hemibrain classifier predicts dopamine for all hemibrain Kenyon cells.
+hemibrain,type,KCab-s,acetylcholine,Barnstedt et al. 2016,10.1016/j.neuron.2016.02.015,Kenyon cells are cholinergic; the hemibrain classifier predicts dopamine for all hemibrain Kenyon cells.
+hemibrain,type,KCg-d,acetylcholine,Barnstedt et al. 2016,10.1016/j.neuron.2016.02.015,Kenyon cells are cholinergic; the hemibrain classifier predicts dopamine for all hemibrain Kenyon cells.
+hemibrain,type,KCg-m,acetylcholine,Barnstedt et al. 2016,10.1016/j.neuron.2016.02.015,Kenyon cells are cholinergic; the hemibrain classifier predicts dopamine for all hemibrain Kenyon cells.
+hemibrain,type,KCg-s1,acetylcholine,Barnstedt et al. 2016,10.1016/j.neuron.2016.02.015,Kenyon cells are cholinergic; the hemibrain classifier predicts dopamine for all hemibrain Kenyon cells.
+hemibrain,type,KCg-s2,acetylcholine,Barnstedt et al. 2016,10.1016/j.neuron.2016.02.015,Kenyon cells are cholinergic; the hemibrain classifier predicts dopamine for all hemibrain Kenyon cells.
+hemibrain,type,KCg-s3,acetylcholine,Barnstedt et al. 2016,10.1016/j.neuron.2016.02.015,Kenyon cells are cholinergic; the hemibrain classifier predicts dopamine for all hemibrain Kenyon cells.
+hemibrain,type,KCg-s4,acetylcholine,Barnstedt et al. 2016,10.1016/j.neuron.2016.02.015,Kenyon cells are cholinergic; the hemibrain classifier predicts dopamine for all hemibrain Kenyon cells.
+hemibrain,type,KCg-t,acetylcholine,Barnstedt et al. 2016,10.1016/j.neuron.2016.02.015,Kenyon cells are cholinergic; the hemibrain classifier predicts dopamine for all hemibrain Kenyon cells.

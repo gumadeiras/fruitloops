@@ -1,7 +1,8 @@
 """Whole-brain neuron labels for path and reach queries.
 
 FlyWire labels come from the pinned Schlegel et al. (2024) annotation table.
-Hemibrain labels come from the compact traced-neuron export (type and instance).
+Hemibrain labels come from the compact traced-neuron export (type and instance)
+and the pinned per-body transmitter predictions.
 """
 
 from __future__ import annotations
@@ -28,6 +29,17 @@ FLYWIRE_ANNOTATION_COLUMNS = (
     "top_nt",
 )
 HEMIBRAIN_LABEL_TABLE = "hemibrain_traced_neurons"
+HEMIBRAIN_TRANSMITTER_TABLE = "hemibrain_body_neurotransmitters"
+# Classifier classes in the column order of the pinned file; an exact tie goes to the earlier class.
+HEMIBRAIN_TRANSMITTER_CLASSES = (
+    "gaba",
+    "acetylcholine",
+    "glutamate",
+    "serotonin",
+    "octopamine",
+    "dopamine",
+    "neither",
+)
 TRANSMITTER_SIGNS = {"acetylcholine": 1, "gaba": -1, "glutamate": -1}
 SENSORY_TYPE_PREFIXES = ("ORN_", "TRN_", "HRN_")
 LABEL_FIELDS = (
@@ -49,7 +61,6 @@ class NeuronLabels:
     fields: dict[str, np.ndarray]
     sign: np.ndarray
     has_classes: bool
-    has_transmitters: bool
 
     def __len__(self) -> int:
         return len(self.ids)
@@ -92,8 +103,6 @@ class NeuronLabels:
 
     def sign_conflict_types(self) -> set[str]:
         """Cell types whose neurons have different transmitter signs."""
-        if not self.has_transmitters:
-            return set()
         signs: dict[str, set[int]] = {}
         for cell_type, sign in zip(self.fields["type"], self.sign.tolist()):
             if cell_type:
@@ -148,22 +157,31 @@ def load_flywire_labels(connection) -> NeuronLabels:
         fields=fields,
         sign=transmitter_signs(fields["transmitter"]),
         has_classes=True,
-        has_transmitters=True,
     )
 
 
 def load_hemibrain_labels(connection) -> NeuronLabels:
     if not table_exists(connection, HEMIBRAIN_LABEL_TABLE):
         raise SystemExit(f"missing {HEMIBRAIN_LABEL_TABLE}; run `fruitloops setup --hemibrain`")
+    require_hemibrain_transmitters(connection)
+    # top_nt = the class with the largest mean probability; bodies without a prediction get ''.
+    largest = ", ".join(f"t.{name}" for name in HEMIBRAIN_TRANSMITTER_CLASSES)
+    classes = " ".join(f"WHEN t.{name} THEN '{name}'" for name in HEMIBRAIN_TRANSMITTER_CLASSES)
     result = connection.execute(
         f"""
-        SELECT CAST(bodyId AS BIGINT) AS id,
-               coalesce(min(type), '') AS type,
-               coalesce(min(instance), '') AS instance
-        FROM {HEMIBRAIN_LABEL_TABLE}
-        WHERE bodyId IS NOT NULL
-        GROUP BY bodyId
-        ORDER BY bodyId
+        WITH traced AS (
+            SELECT CAST(bodyId AS BIGINT) AS id,
+                   coalesce(min(type), '') AS type,
+                   coalesce(min(instance), '') AS instance
+            FROM {HEMIBRAIN_LABEL_TABLE}
+            WHERE bodyId IS NOT NULL
+            GROUP BY bodyId
+        )
+        SELECT traced.id, traced.type, traced.instance,
+               coalesce(CASE greatest({largest}) {classes} END, '') AS top_nt
+        FROM traced
+        LEFT JOIN {HEMIBRAIN_TRANSMITTER_TABLE} AS t ON CAST(t.body AS BIGINT) = traced.id
+        ORDER BY traced.id
         """
     ).fetchnumpy()
     count = len(result["id"])
@@ -175,14 +193,25 @@ def load_hemibrain_labels(connection) -> NeuronLabels:
         [sides.get(infer_side(instance), "") for instance in result["instance"]],
         dtype=object,
     )
+    fields["top_nt"] = np.asarray(result["top_nt"], dtype=object)
+    fields["transmitter"] = apply_transmitter_overrides("hemibrain", fields)
     return NeuronLabels(
         dataset="hemibrain",
         ids=np.asarray(result["id"], dtype=np.int64),
         fields=fields,
-        sign=np.zeros(count, dtype=np.int8),
+        sign=transmitter_signs(fields["transmitter"]),
         has_classes=False,
-        has_transmitters=False,
     )
+
+
+def require_hemibrain_transmitters(connection) -> None:
+    hint = "run `fruitloops setup --hemibrain` to import the pinned hemibrain transmitter predictions"
+    if not table_exists(connection, HEMIBRAIN_TRANSMITTER_TABLE):
+        raise SystemExit(f"missing {HEMIBRAIN_TRANSMITTER_TABLE}; {hint}")
+    columns = {row[0] for row in connection.execute(f"DESCRIBE {HEMIBRAIN_TRANSMITTER_TABLE}").fetchall()}
+    missing = [column for column in ("body", *HEMIBRAIN_TRANSMITTER_CLASSES) if column not in columns]
+    if missing:
+        raise SystemExit(f"{HEMIBRAIN_TRANSMITTER_TABLE} lacks columns {', '.join(missing)}; {hint}")
 
 
 def apply_transmitter_overrides(dataset: str, fields: dict[str, np.ndarray]) -> np.ndarray:

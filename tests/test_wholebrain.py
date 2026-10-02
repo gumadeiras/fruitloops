@@ -147,6 +147,23 @@ def write_hemibrain_fixture(store: Path) -> None:
                 (301, "DNa02", "DNa02_R"),
             ],
         )
+        connection.execute(
+            """
+            CREATE TABLE hemibrain_body_neurotransmitters(
+                body UBIGINT, gaba DOUBLE, acetylcholine DOUBLE, glutamate DOUBLE, serotonin DOUBLE,
+                octopamine DOUBLE, dopamine DOUBLE, neither DOUBLE
+            )
+            """
+        )
+        connection.executemany(
+            "INSERT INTO hemibrain_body_neurotransmitters VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (101, 0.05, 0.8, 0.05, 0.02, 0.02, 0.03, 0.03),
+                (201, 0.8, 0.05, 0.05, 0.02, 0.02, 0.03, 0.03),
+                (202, 0.05, 0.8, 0.05, 0.02, 0.02, 0.03, 0.03),
+                (301, 0.05, 0.8, 0.05, 0.02, 0.02, 0.03, 0.03),
+            ],
+        )
 
 
 def run_cli_rows(*args: str) -> tuple[list[dict[str, str]], str, str]:
@@ -541,8 +558,6 @@ class HemibrainPathsTest(unittest.TestCase):
             base = ["--hemibrain", "--store", str(store), "--target-type", "DNa02"]
             class_error = cli_error("paths", *base, "--source-class", "ALPN")
             orn_error = cli_error("paths", *base, "--source-type", "DA1_lPN", "--orn-family", "orco")
-            signed_error = cli_error("paths", *base, "--source-type", "DA1_lPN", "--signed")
-            side_error = cli_error("reach", *base, "--source-type", "DA1_lPN", "--by-side")
             olf_name_error = cli_error("paths", *base, "--source-type", "PN")
             type_rows, _, _ = run_cli_rows("paths", *base, "--source-type", "*_*PN*", "--by-type", "--csv")
 
@@ -557,14 +572,13 @@ class HemibrainPathsTest(unittest.TestCase):
         self.assertAlmostEqual(float(rows[0]["strength"]), 8 / 10 * 12 / 20, places=6)
         self.assertAlmostEqual(float(rows[2]["strength"]), 9 / 9 * 8 / 20, places=6)
         self.assertEqual(rows[0]["target_side"], "right")
-        self.assertEqual(rows[0]["sign"], "")
+        self.assertEqual((rows[0]["sign"], rows[0]["transmitters"]), ("-1", "acetylcholine > gaba > acetylcholine"))
+        self.assertEqual(rows[2]["sign"], "1")
         self.assertIn("--source-type '*_*PN*'", class_error)
         self.assertIn("not supported for hemibrain", orn_error)
-        self.assertIn("--signed is not supported for hemibrain", signed_error)
-        self.assertIn("--by-side is not supported for hemibrain", side_error)
         self.assertIn("no class annotations", olf_name_error)
         self.assertEqual([row["path_types"] for row in type_rows], ["DA1_lPN > LHX > DNa02", "DA1_lPN > SMPX > DNa02"])
-        self.assertEqual(type_rows[0]["signed_strength"], "")
+        self.assertAlmostEqual(float(type_rows[0]["signed_strength"]), -float(type_rows[0]["strength"]), places=6)
         self.assertIn("--source-type '*_*PN*'", olf_name_error)
 
 

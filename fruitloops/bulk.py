@@ -109,6 +109,19 @@ BULK_SOURCES = {
             ),
             sha256="d6bcdba98d7fd1a41be08aff79e5725c22cc24cec4a830e6d422ddfecbb98b6e",
         ),
+        BulkSource(
+            dataset="hemibrain",
+            kind="body-neurotransmitters",
+            url="https://storage.googleapis.com/hemibrain/v1.2/hemibrain-v1.2-body-mean-neurotransmitters.feather",
+            filename="hemibrain-v1.2-body-mean-neurotransmitters.feather",
+            format="feather",
+            table_name="hemibrain_body_neurotransmitters",
+            description=(
+                "Hemibrain v1.2 transmitter predictions per body: mean T-bar class probabilities "
+                "from the Eckstein et al. (2024) classifier."
+            ),
+            sha256="aab49d858415f559f469a9293adfb4d58e423db83a5debb24272ee4d66e059ad",
+        ),
     ]
 }
 HEMIBRAIN_COMPACT_IMPORTS = {
@@ -162,13 +175,25 @@ def setup_flywire_bulk(
     rows = setup_file_source_rows(source, bulk_dir, store, replace, skip_current=skip_current)
     rows.extend(setup_optimize_rows(source.dataset, source.table_name, "flywire", store, skip_current=skip_current))
     annotations = resolve_source("flywire", "neuron-annotations")
-    try:
-        rows.extend(setup_file_source_rows(annotations, bulk_dir, store, replace, skip_current=skip_current))
-    except (OSError, ValueError) as error:
-        # Only the whole-brain commands need the annotations, so the graph and olf stages still run.
-        path = source_path(annotations, bulk_dir / "raw")
-        rows.append(setup_row(annotations.dataset, "download", annotations.kind, f"error: {error}", path, store))
+    rows.extend(setup_label_source_rows(annotations, bulk_dir, store, replace, skip_current=skip_current))
     return rows
+
+
+def setup_label_source_rows(
+    source: BulkSource,
+    bulk_dir: Path,
+    store: Path,
+    replace: bool,
+    *,
+    skip_current: bool = False,
+) -> list[dict[str, str]]:
+    """Download and import a label source; a failure gives an ``error`` row instead of stopping setup."""
+    try:
+        return setup_file_source_rows(source, bulk_dir, store, replace, skip_current=skip_current)
+    except (OSError, ValueError) as error:
+        # Only the whole-brain commands need the labels, so the graph and olf stages still run.
+        path = source_path(source, bulk_dir / "raw")
+        return [setup_row(source.dataset, "download", source.kind, f"error: {error}", path, store)]
 
 
 def setup_file_source_rows(
@@ -255,6 +280,8 @@ def setup_hemibrain_bulk(
         )
         rows.append(setup_row(source.dataset, "import", imported["table"], setup_stage_status(imported), path, store))
     rows.extend(setup_optimize_rows(source.dataset, source.table_name, "hemibrain", store, skip_current=skip_current))
+    transmitters = resolve_source("hemibrain", "body-neurotransmitters")
+    rows.extend(setup_label_source_rows(transmitters, bulk_dir, store, replace, skip_current=skip_current))
     return rows
 
 

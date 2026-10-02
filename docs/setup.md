@@ -43,8 +43,10 @@ Setup downloads/imports practical bulk connection tables, creates the DuckDB
 store, creates the live cache directory, optimizes imported tables, and builds
 derived `olf_*` tables. FlyWire setup also imports the pinned whole-brain
 neuron annotation table (`flywire_neuron_annotations`). Hemibrain setup also
-builds the ORN->PN and olfaction annotation tables from the pinned neuPrint
-neo4j bundle, without credentials; see
+imports the pinned per-body transmitter predictions
+(`hemibrain_body_neurotransmitters`, 46 MB) and builds the ORN->PN and
+olfaction annotation tables from the pinned neuPrint neo4j bundle, without
+credentials; see
 [Hemibrain tables from the neo4j bundle](#hemibrain-tables-from-the-neo4j-bundle).
 Each dataset also gets a sparse graph cache for `paths` and `reach`; see
 [docs/paths.md](paths.md).
@@ -98,9 +100,13 @@ table changed after the last olfaction build, the next query rebuilds the
 derived tables once and prints a note on stderr. That rebuild keeps the
 datasets of the last build; run `setup` or `olf build` to change them.
 
-If the pinned FlyWire annotation download or its sha256 check fails, setup
-reports an `error` row and continues with the graph and olfaction stages. If
-the hemibrain neo4j bundle cannot be read or verified, setup reports an
+If the download or the sha256 check of a pinned label source (FlyWire
+annotations or hemibrain transmitter predictions) fails, setup reports an
+`error` row and continues with the graph and olfaction stages. `neurons`,
+`paths`, and `reach` for that dataset stop until a later setup imports the
+table.
+
+If the hemibrain neo4j bundle cannot be read or verified, setup reports an
 `error` row for `neo4j-inputs` and keeps the other hemibrain tables.
 
 ## Annotation Caching
@@ -319,6 +325,13 @@ FlyWire whole-brain annotations, pinned to a commit and checked by sha256:
 
 ```bash
 fruitloops admin bulk download --dataset flywire --kind neuron-annotations
+```
+
+Hemibrain v1.2 per-body transmitter predictions, checked by sha256 (source,
+columns, and rule in [docs/paths.md](paths.md#hemibrain-predictions)):
+
+```bash
+fruitloops admin bulk download --dataset hemibrain --kind body-neurotransmitters
 ```
 
 Optional larger downloads:

@@ -62,7 +62,9 @@ fruitloops setup --cache-annotations
 Setup is offline-first. Hemibrain compact adjacencies do not include most ORNs,
 so hemibrain setup also builds the ORN->PN and annotation tables from the
 pinned neuPrint neo4j bundle, without tokens. It reads about 750 MB of the
-bundle by HTTP range requests.
+bundle by HTTP range requests. It also downloads the pinned hemibrain
+transmitter predictions (46 MB) that `neurons`, `paths`, and `reach` use for
+signs.
 
 Run directly from the repository:
 

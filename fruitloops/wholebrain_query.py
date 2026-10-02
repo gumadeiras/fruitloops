@@ -66,10 +66,6 @@ class QueryContext:
     def dataset(self) -> str:
         return self.labels.dataset
 
-    @property
-    def has_signs(self) -> bool:
-        return self.labels.has_transmitters
-
 
 def prepare_query(
     *,
@@ -263,7 +259,7 @@ def type_path_rows(
                     "strength": f"{item.strength:.6g}",
                     "share": f"{item.strength / total:.6g}",
                     "ipsi_share": f"{item.ipsi / sided:.6g}" if sided > 0 else "",
-                    "signed_strength": f"{item.signed:.6g}" if context.has_signs else "",
+                    "signed_strength": f"{item.signed:.6g}",
                     "step_synapses": " > ".join(str(count) for count in synapses),
                 })
     report_missing(context, missing, max_hops, "target type/route combinations")
@@ -279,7 +275,8 @@ def path_row(context, route, rank, cost, path, hops, first: EdgeTable, relay: Ed
         steps.append((int(table.synapses[edge]), float(table.weight[edge])))
     source, target = path[0], path[-1]
     strength = float(np.exp(-cost))
-    row = {
+    sign = int(np.prod([int(context.signs[node]) for node in path[:-1]]))
+    return {
         "dataset": context.dataset,
         "route": route,
         "target_id": str(int(ids[target])),
@@ -299,20 +296,13 @@ def path_row(context, route, rank, cost, path, hops, first: EdgeTable, relay: Ed
         "path_sides": " > ".join(context.sides[node] or "?" for node in path),
         "step_synapses": " > ".join(str(synapses) for synapses, _ in steps),
         "step_weights": " > ".join(f"{weight:.6g}" for _, weight in steps),
-        "sign": "",
-        "signed_strength": "",
-        "transmitters": "",
-        "sign_conflict_types": "",
-    }
-    if context.has_signs:
-        sign = int(np.prod([int(context.signs[node]) for node in path[:-1]]))
-        row["sign"] = str(sign)
-        row["signed_strength"] = f"{sign * strength:.6g}"
-        row["transmitters"] = " > ".join(context.transmitters[node] or "?" for node in path)
-        row["sign_conflict_types"] = ";".join(
+        "sign": str(sign),
+        "signed_strength": f"{sign * strength:.6g}",
+        "transmitters": " > ".join(context.transmitters[node] or "?" for node in path),
+        "sign_conflict_types": ";".join(
             sorted({context.display[node] for node in path[:-1] if context.display[node] in conflicts})
-        )
-    return row
+        ),
+    }
 
 
 def side_relation(source: str, target: str) -> str:

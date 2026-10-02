@@ -29,6 +29,14 @@ FlyWire setup imports two sources:
   `neurons`, `paths`, and `reach` then stop until a later setup imports the
   table.
 
+Hemibrain setup imports the v1.2 compact traced-neuron tables, such as
+`hemibrain_traced_roi_connections` and `hemibrain_traced_neurons`, and
+`hemibrain_body_neurotransmitters`, the pinned per-body transmitter
+predictions (see [Hemibrain predictions](#hemibrain-predictions)). If the
+prediction download or its sha256 check fails, setup reports an `error` row
+and still builds the graph and `olf` stages. `neurons`, `paths`, and `reach`
+with `--hemibrain` then stop until a later setup imports the table.
+
 Setup then builds a sparse graph cache for each dataset, at
 `<store stem>.graphs/<dataset>.npz` next to the DuckDB store, for example
 `fruitloops.graphs/flywire.npz`. The FlyWire cache is about 200 MB and builds
@@ -169,19 +177,26 @@ Orco-weighted values depend on this set. For example, the multiglomerular
 ORN weighting is FlyWire-only. The hemibrain compact export lacks most ORNs and
 their glomerulus labels.
 
-## Transmitter Signs (FlyWire)
+## Transmitter Signs
 
-Signed mode uses the FlyWire top transmitter prediction (Eckstein et al. 2024)
-of each presynaptic neuron:
+Signed mode uses the top transmitter prediction of each presynaptic neuron.
+Both datasets use predictions of the classifier of Eckstein et al. (2024):
+FlyWire uses `top_nt` of the pinned annotation table, and hemibrain uses the
+pinned per-body file described [below](#hemibrain-predictions). Signs:
 
 - acetylcholine: +1
 - GABA: -1
 - glutamate: -1
-- any other or unknown transmitter: 0
+- any other or unknown transmitter, including `neither`: 0
 
 The packaged table `fruitloops/curated/transmitter_overrides.csv` sets all
 Kenyon cells to acetylcholine (Barnstedt et al. 2016). The classifier predicts
-dopamine for most Kenyon cells.
+dopamine for most FlyWire Kenyon cells and for all 1,927 hemibrain Kenyon
+cells. Each row sets the transmitter of the neurons whose label field has
+exactly the row's value. The FlyWire row matches `cell_class` `Kenyon_Cell`.
+Hemibrain has no class annotations, so its rows list the 14 hemibrain v1.2
+Kenyon-cell types, from `KCa'b'-ap1` to `KCg-t`. `neurons` reports the
+prediction as `top_nt` and the result as `transmitter`.
 
 - `paths` always reports `sign` (the product over presynaptic neurons),
   `signed_strength`, and `transmitters`. With `--signed`, the search uses only
@@ -190,14 +205,58 @@ dopamine for most Kenyon cells.
   count.
 - `reach --by-side` reports `signed_ipsi`, `signed_contra`, and `signed_net`
   (signed ipsi - signed contra).
-- Some types have neurons with different signs. For example, one il3LN6 neuron
-  is predicted GABA and the other acetylcholine. Signs apply per neuron. The
-  `sign_conflict_types` column of `paths` names such types on a path. To list
-  their neurons, run `fruitloops neurons --flywire --sign-conflicts`; it prints
-  at most `--limit` neurons (default 200).
+- Some types have neurons with different signs. For example, one FlyWire
+  il3LN6 neuron is predicted GABA and the other acetylcholine. Signs apply per
+  neuron. The `sign_conflict_types` column of `paths` names such types on a
+  path. To list their neurons, run `fruitloops neurons --flywire
+  --sign-conflicts` or `fruitloops neurons --hemibrain --sign-conflicts`; it
+  prints at most `--limit` neurons (default 200). Hemibrain has 330 such
+  types.
 
-Hemibrain has no transmitter predictions offline, so `--signed` and `--by-side`
-are FlyWire-only.
+### Hemibrain predictions
+
+`hemibrain_body_neurotransmitters` comes from the bulk source
+`hemibrain:body-neurotransmitters`, the FlyEM file
+`https://storage.googleapis.com/hemibrain/v1.2/hemibrain-v1.2-body-mean-neurotransmitters.feather`
+(45,591,786 bytes). Setup checks its sha256
+(`aab49d858415f559f469a9293adfb4d58e423db83a5debb24272ee4d66e059ad`) and
+refuses a file that does not match.
+
+The file has one row for each of the 837,710 hemibrain v1.2 bodies with
+predictions. fruitloops reads these columns:
+
+- `body`: the body id.
+- `gaba`, `acetylcholine`, `glutamate`, `serotonin`, `octopamine`, `dopamine`,
+  `neither`: the per-body mean, as the file name states, of the classifier
+  scores at the body's presynaptic sites (T-bars). `neither` is the score for
+  none of the six transmitters. The seven values of a row add up to 1.
+
+`top_nt` is the class with the largest mean score, `neither` included. No
+confidence threshold applies. An exact tie goes to the class listed first
+above; the pinned file has no ties. This rule gives the file's
+`predicted_nt` column for every row. The other columns (`type`, `instance`,
+`statusLabel`, `predicted_nt`) are not used.
+
+The per-site scores are the hemibrain synapse-level predictions of Eckstein et
+al. (2024): `hemibrain-v1.2-tbar-neurotransmitters.feather.bz2`, in the same
+bucket, has the same MD5 as that file in their Zenodo record 10593546. FlyEM
+has not published the code that computes the per-body means.
+
+Coverage and limits:
+
+- 21,709 of the 21,739 traced bodies (99.86%) have a prediction. The other 30
+  get an empty `top_nt` and `transmitter`, and sign 0.
+- 125 traced bodies have `neither` as the top class, for example the hemibrain
+  DNa02 neuron. Their sign is 0.
+- Eckstein et al. report lower accuracy for hemibrain than for FAFB: 78%
+  against 87% per synapse, and 91% against 94% per neuron.
+- 4,155 cell types are in both datasets, matched by FlyWire `hemibrain_type`.
+  For 3,659 of them (88%), the most common hemibrain `top_nt` equals the most
+  common FlyWire `top_nt`. Most of the largest differences are optic-lobe and
+  central-complex types: for example, LC12 and LC17 are GABA in hemibrain and
+  acetylcholine in FlyWire, and LLPC2b and EPG are glutamate in hemibrain and
+  acetylcholine in FlyWire.
+- The file is for hemibrain v1.2. Hemibrain v1.2.1 has the same connectome.
 
 ## Laterality
 
@@ -214,6 +273,17 @@ ipsi and contra each add two side means, so they are not on the scale of
 neither side. With ORN weighting, each side needs ORNs of the chosen
 glomeruli; a glomerulus with ORNs on one antenna side only stops the command.
 AI is empty when a type lacks neurons on one side or has no reach.
+
+Most hemibrain neurons are on the right side: 14,346 traced bodies have the
+`_R` instance suffix and 2,497 have `_L`. Thus hemibrain AI is often empty:
+
+- Of the 337 antennal-lobe PNs that `'*_*PN*'` selects, 322 are right, 3 are
+  left, and 12 have no side.
+- With these PNs as sources, 822 of the 5,554 hemibrain types get an AI at
+  hop 2. The other types lack neurons on one side, or have no reach.
+- Where AI is present, ipsi and contra compare reach from 3 left seeds with
+  reach from 322 right seeds. Thus a hemibrain AI mostly shows the unequal
+  seed sets, not a property of the circuit.
 
 ## Output Columns
 
@@ -249,7 +319,7 @@ route, target type, and rank: `target_type`, `rank`, `hops`, `path_types`,
   hops into the target type's neurons.
 - `ipsi_share` = the part of the strength from sources on the target neuron's
   soma side, out of the part whose source and target sides are both known.
-- `signed_strength` sums the signed products over the same paths (FlyWire).
+- `signed_strength` sums the signed products over the same paths.
 - `step_synapses`: per step, the synapses between the neurons that the route's
   paths pass through on their way to a target.
 - Untyped neurons are grouped under their bracketed label, such as `[central]`.
@@ -359,6 +429,9 @@ The three strongest 2-hop paths to DNa02 go through different relays:
 | 2 | M_l2PNl20 > LAL030_a > DNa02 | 9.95924e-05 |
 | 3 | M_l2PNl20 > SIP023 > DNa02 | 8.83072e-05 |
 
+All three paths have sign 1, because M_l2PNl20 and the three relays are
+predicted cholinergic. `--signed` gives the same three paths.
+
 To split the routes by first-synapse region, repeat `--via`, for example
 `--via AL --via LH --via MB --via other --via kc`. For reach by route, use
 `--by-route`.
@@ -370,7 +443,8 @@ To split the routes by first-synapse region, repeat `--via`, for example
 - Schlegel et al. 2024, Nature, doi:10.1038/s41586-024-07686-5 (FlyWire
   whole-brain annotations).
 - Eckstein et al. 2024, Cell, doi:10.1016/j.cell.2024.03.016 (transmitter
-  predictions).
+  predictions), and its supplemental files, doi:10.5281/zenodo.10593546
+  (hemibrain synapse-level predictions).
 - Scheffer et al. 2020, eLife, doi:10.7554/eLife.57443 (hemibrain).
 - Barnstedt et al. 2016, Neuron, doi:10.1016/j.neuron.2016.02.015 (Kenyon
   cells are cholinergic).

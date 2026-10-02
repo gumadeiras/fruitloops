@@ -17,9 +17,22 @@
 - Added `fruitloops olf cache-annotations --hemibrain --source neo4j-inputs` to
   refresh only these two tables from the bundle. Without `--source`, the
   command still fetches them live from neuPrint.
+- Added hemibrain transmitter signs. `fruitloops setup --hemibrain` imports the
+  FlyEM hemibrain v1.2 per-body transmitter predictions (Eckstein et al. 2024
+  classifier, 46 MB) after a sha256 check, as its own setup stage. `neurons
+  --hemibrain` reports `top_nt`, `transmitter`, `sign`, and
+  `type_sign_conflict`, and accepts `--sign-conflicts`. `paths --hemibrain`
+  reports `sign`, `signed_strength`, and `transmitters`, and accepts
+  `--signed`; `paths --hemibrain --by-type` reports `signed_strength`.
+  `reach --hemibrain --by-side` now works. Hemibrain Kenyon cells are set to
+  acetylcholine, as in FlyWire. Most hemibrain neurons are on the right side,
+  so `reach --hemibrain --by-side` often leaves `ai` empty.
 
 ### Changes
 
+- `neurons`, `paths`, and `reach` with `--hemibrain` now need the transmitter
+  table. On a store from an earlier setup, they stop with a message to run
+  `fruitloops setup --hemibrain`.
 - `fruitloops admin bulk download --dataset hemibrain --kind neo4j-inputs` now
   verifies the bundle sha256, and `fruitloops admin bulk sources` lists it.
 - The `olf inputs --hemibrain` hint for missing ORN rows now names the offline
