@@ -27,12 +27,40 @@
   `reach --hemibrain --by-side` now works. Hemibrain Kenyon cells are set to
   acetylcholine, as in FlyWire. Most hemibrain neurons are on the right side,
   so `reach --hemibrain --by-side` often leaves `ai` empty.
+- `neurons`, `paths`, and `reach` with `--hemibrain` now accept `--class` and
+  `--super-class` (with the `--source-` and `--target-` prefixes) in the
+  FlyWire vocabulary, for example `--source-class ALPN` and
+  `--target-super-class descending`. Each hemibrain type gets the class of more
+  than half of the FlyWire neurons that the pinned FlyWire annotation table
+  matches to it; types without such a class stay empty. 72% of the traced
+  hemibrain bodies get a super class. `neurons --hemibrain` reports
+  `super_class` and `cell_class`.
+- `paths --hemibrain` and `reach --hemibrain` now accept `--orn-family`,
+  `--orn-glomerulus`, and `--orn-side`. A PN's seed is its input fraction from
+  the chosen ORNs, with ORN synapses from the hemibrain ORN->PN table that
+  setup builds and other inputs from the hemibrain graph; graph weights do not
+  change. The antenna side comes from the ORN instance suffix (`_R` right,
+  `_L` left), as verified against Schlegel et al. (2021). Hemibrain glomeruli
+  use the names of Schlegel et al. (2021), so the v1.2 types `ORN_VC3l`,
+  `ORN_VC3m`, and `ORN_VC5` count as VC3, VC5, and VM6. `--orn-family amt`
+  includes the undivided hemibrain VM6.
+
+### Fixes
+
+- `fruitloops olf cache-annotations` no longer fails with "Cannot create index
+  with outstanding updates" when the store has annotation tables but no `olf`
+  tables.
+- `olf inputs`, `olf outputs`, `olf pathway`, `olf classes`, `olf edges`, and
+  `olf orn-inputs` now list rows with equal synapse counts in a fixed order,
+  so repeated runs give the same output. With `--by-side`, the order includes
+  the side columns.
 
 ### Changes
 
 - `neurons`, `paths`, and `reach` with `--hemibrain` now need the transmitter
-  table. On a store from an earlier setup, they stop with a message to run
-  `fruitloops setup --hemibrain`.
+  table and the FlyWire annotation table. On a store from an earlier setup,
+  they stop with a message to run `fruitloops setup --hemibrain`, which now
+  also imports the FlyWire annotation table.
 - `fruitloops admin bulk download --dataset hemibrain --kind neo4j-inputs` now
   verifies the bundle sha256, and `fruitloops admin bulk sources` lists it.
 - The `olf inputs --hemibrain` hint for missing ORN rows now names the offline

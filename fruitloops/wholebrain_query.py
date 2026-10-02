@@ -9,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .curated import family_glomeruli
+from .curated import family_glomeruli, hemibrain_glomerulus_names
 from .graph_analysis import (
     ROUTES,
     EdgeTable,
@@ -25,11 +25,15 @@ from .graph_analysis import (
     threshold_graph,
 )
 from .graph_cache import ConnectomeGraph, load_graph
+from .hemibrain_orns import HemibrainOrnInputs, hemibrain_orn_seeds, load_hemibrain_orn_inputs
 from .neuron_labels import NeuronLabels, load_neuron_labels
 from .selectors import Selection, select_neurons
 from .type_routes import LEFT, OTHER, RIGHT, RouteGraph, route_synapses, strongest_type_routes
 
 SIDES = ("left", "right")
+# How errors name the ORNs that --orn-glomerulus and all --orn-* options can match.
+FLYWIRE_ORNS = ("FlyWire ORN/TRN/HRN neurons", "FlyWire sensory neurons")
+HEMIBRAIN_ORNS = ("hemibrain ORNs", "hemibrain ORNs")
 
 
 @dataclass(frozen=True)
@@ -61,6 +65,7 @@ class QueryContext:
     orn: OrnSeedSpec
     targets: Selection
     target_nodes: np.ndarray
+    orn_inputs: HemibrainOrnInputs | None = None
 
     @property
     def dataset(self) -> str:
@@ -113,6 +118,7 @@ def prepare_query(
         orn=orn,
         targets=targets,
         target_nodes=graph.nodes_for_ids(labels.ids[targets.rows]),
+        orn_inputs=load_hemibrain_orn_inputs(store) if orn.active and dataset == "hemibrain" else None,
     )
     context.seeds = seed_vector(context, orn)
     report_seeds(context, source_selection)
@@ -124,29 +130,57 @@ def seed_vector(context: QueryContext, orn: OrnSeedSpec, side: str | None = None
     if not orn.active:
         sources = context.sources & (context.sides == side) if side else context.sources
         return sources.astype(np.float64)
+    if context.orn_inputs is not None:
+        chosen = hemibrain_orn_rows(context.orn_inputs, orn, side or orn.side)
+        return hemibrain_orn_seeds(context.graph, context.sources, context.orn_inputs, chosen)
     inputs = orn_input_nodes(context, orn, side or orn.side)
     return input_fraction_seeds(context.graph, context.sources, inputs)
 
 
 def orn_input_nodes(context: QueryContext, orn: OrnSeedSpec, side: str | None) -> np.ndarray:
+    """FlyWire graph nodes of the chosen ORNs."""
     glomeruli_by_row = context.labels.sensory_glomeruli()
     glomeruli = np.where(context.node_rows >= 0, glomeruli_by_row[context.node_rows.clip(min=0)], "")
     present = sorted({value for value in glomeruli_by_row.tolist() if value})
+    return select_orns(glomeruli, context.sides, present, orn, side, FLYWIRE_ORNS)
+
+
+def hemibrain_orn_rows(inputs: HemibrainOrnInputs, orn: OrnSeedSpec, side: str | None) -> np.ndarray:
+    """ORN table rows of the chosen ORNs."""
+    present = sorted(set(inputs.glomeruli.tolist()))
+    renamed = hemibrain_glomerulus_names()
+    if orn.glomerulus in renamed and orn.glomerulus not in present:
+        raise SystemExit(
+            f"--orn-glomerulus '{orn.glomerulus}': hemibrain v1.2 type ORN_{orn.glomerulus} is glomerulus "
+            f"{renamed[orn.glomerulus]} (Schlegel et al. 2021); use --orn-glomerulus {renamed[orn.glomerulus]}"
+        )
+    return select_orns(inputs.glomeruli, inputs.sides, present, orn, side, HEMIBRAIN_ORNS)
+
+
+def select_orns(
+    glomeruli: np.ndarray,
+    sides: np.ndarray,
+    present: list[str],
+    orn: OrnSeedSpec,
+    side: str | None,
+    names: tuple[str, str],
+) -> np.ndarray:
+    """Mask of the ORNs of the chosen glomeruli and side; ``names`` words the errors."""
     if orn.glomerulus:
         if orn.glomerulus not in present:
             close = difflib.get_close_matches(orn.glomerulus, present, n=5, cutoff=0.5)
             hint = f"; close matches: {', '.join(close)}" if close else ""
-            raise SystemExit(f"--orn-glomerulus '{orn.glomerulus}' has no FlyWire ORN/TRN/HRN neurons{hint}")
+            raise SystemExit(f"--orn-glomerulus '{orn.glomerulus}' has no {names[0]}{hint}")
         chosen = {orn.glomerulus}
     else:
         chosen = family_glomeruli(orn.family or "")
     inputs = np.isin(glomeruli, sorted(chosen))
     if side:
-        inputs &= context.sides == side
+        inputs &= sides == side
     if not inputs.any():
         # A side other than --orn-side comes from --by-side, which needs ORNs on both antennae.
         where = f" on the {side} antenna side (needed by --by-side)" if side and side != orn.side else ""
-        raise SystemExit(f"no FlyWire sensory neurons match {orn_description(orn)}{where}")
+        raise SystemExit(f"no {names[1]} match {orn_description(orn)}{where}")
     return inputs
 
 
@@ -169,6 +203,13 @@ def report_seeds(context: QueryContext, selection: Selection) -> None:
         f"{positive} with seed > 0; {seed_text}; {len(context.targets.rows)} target neurons",
         file=sys.stderr,
     )
+    renamed = {new: old for old, new in hemibrain_glomerulus_names().items()}
+    if context.orn_inputs is not None and context.orn.glomerulus in renamed:
+        print(
+            f"{context.command}: hemibrain glomerulus {context.orn.glomerulus} is v1.2 type "
+            f"ORN_{renamed[context.orn.glomerulus]} (renamed by Schlegel et al. 2021)",
+            file=sys.stderr,
+        )
     if positive == 0:
         raise SystemExit("no source neuron has a positive seed weight; check --orn-* options")
 

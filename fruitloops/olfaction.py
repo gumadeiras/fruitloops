@@ -876,7 +876,7 @@ def olfaction_edges(
     SELECT dataset, pre_id, post_id, neuropil, region, hemisphere, synapses, source_table
     FROM {safe_identifier(prefix)}_edges_by_neuropil
     WHERE {" AND ".join(where)}
-    ORDER BY synapses DESC, dataset, pre_id, post_id
+    ORDER BY synapses DESC, dataset, pre_id, post_id, neuropil, source_table
     LIMIT ?
     """
     return run_sql(store, sql, params + [limit])
@@ -914,7 +914,8 @@ def olfaction_class_summary(
            neurons, input_synapses, output_synapses, total_synapses
     FROM {safe_identifier(prefix)}_cell_type_summary
     {where}
-    ORDER BY total_synapses DESC, neurons DESC, dataset, region, cell_class, glomerulus
+    ORDER BY total_synapses DESC, neurons DESC, dataset, region, cell_class, glomerulus,
+             neuropil_side, cell_body_side
     LIMIT ?
     """
     return run_sql(store, sql, params + [limit])
@@ -1020,7 +1021,8 @@ def olfaction_pathway_summary(
     {where}
     GROUP BY dataset, pre_class, post_class, pre_glomerulus, post_glomerulus, region
              {group_side_columns}
-    ORDER BY synapses DESC, dataset, source_class, target_class
+    ORDER BY synapses DESC, dataset, source_class, target_class, source_glomerulus, target_glomerulus,
+             region{group_side_columns}
     LIMIT ?
     """
     return run_sql(store, sql, params + [limit])
@@ -1084,7 +1086,7 @@ def olfaction_input_summary(
     {filters}
     GROUP BY dataset, post_id, post_name, post_class, post_glomerulus, pre_class, pre_glomerulus
              {group_side_columns}
-    ORDER BY synapses DESC, dataset, target_id, source_class
+    ORDER BY synapses DESC, dataset, target_id, source_class, source_glomerulus{group_side_columns}
     LIMIT ?
     """
     return run_sql(store, sql, params + [limit])
@@ -1148,7 +1150,7 @@ def olfaction_output_summary(
     {filters}
     GROUP BY dataset, pre_id, pre_name, pre_class, pre_glomerulus, post_class, post_glomerulus
              {group_side_columns}
-    ORDER BY synapses DESC, dataset, source_id, target_class
+    ORDER BY synapses DESC, dataset, source_id, target_class, target_glomerulus{group_side_columns}
     LIMIT ?
     """
     return run_sql(store, sql, params + [limit])
@@ -1167,6 +1169,7 @@ def olfaction_orn_inputs(
     side_sql = f"CASE WHEN p.side = '' OR {orn_side_sql} = '' THEN 'unknown' WHEN p.side = {orn_side_sql} THEN 'ipsi' ELSE 'contra' END"
     group_side = f", p.side AS pn_side, {orn_side_sql} AS orn_side, {side_sql} AS side_relation" if by_side else ""
     group_by = f", p.side, {orn_side_sql}, {side_sql}" if by_side else ""
+    order_side = ", orn_side" if by_side else ""
     filters = ["o.cell_class = 'ORN'", "p.cell_class = 'PN'"]
     params: list[str | int] = []
     if dataset:
@@ -1192,7 +1195,7 @@ def olfaction_orn_inputs(
       ON p.dataset = e.dataset AND p.body_id = e.post_id
     WHERE {" AND ".join(filters)}
     GROUP BY e.dataset, p.body_id, p.primary_name, p.glomerulus{group_by}
-    ORDER BY synapses DESC, e.dataset, p.body_id
+    ORDER BY synapses DESC, e.dataset, p.body_id{order_side}
     LIMIT ?
     """
     return run_sql(store, sql, params + [limit])

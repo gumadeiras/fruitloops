@@ -93,6 +93,15 @@ W_AT1, W_BT1, W_MT1, W_BT2 = 10 / IN_T1, 20 / IN_T1, 15 / IN_T1, 10 / IN_T2
 W_AT3, W_DT3 = 5 / IN_T3, 15 / IN_T3
 
 
+# FlyWire neurons matched to hemibrain fixture types; they give the hemibrain classes.
+HEMIBRAIN_CLASS_SOURCE = [
+    (9001, "DA1_lPN", "right", "central", "ALPN", "uniglomerular", "DA1_lPN", "acetylcholine"),
+    (9002, "KCg-m", "right", "central", "Kenyon_Cell", "", "KCg-m", "dopamine"),
+    (9003, "MBON01", "right", "central", "MBON", "", "MBON01", "glutamate"),
+    (9004, "DNa02", "right", "descending", "", "", "DNa02", "acetylcholine"),
+]
+
+
 def write_flywire_fixture(store: Path) -> None:
     import duckdb
 
@@ -105,18 +114,23 @@ def write_flywire_fixture(store: Path) -> None:
             """
         )
         connection.executemany("INSERT INTO flywire_proofread_connections VALUES (?, ?, ?, ?)", EDGES)
-        connection.execute(
-            """
-            CREATE TABLE flywire_neuron_annotations(
-                root_id BIGINT, cell_type VARCHAR, side VARCHAR, super_class VARCHAR, cell_class VARCHAR,
-                cell_sub_class VARCHAR, hemibrain_type VARCHAR, top_nt VARCHAR
-            )
-            """
+        write_flywire_annotations(connection, NEURONS)
+
+
+def write_flywire_annotations(connection, rows: list[tuple]) -> None:
+    """FlyWire annotation rows: root_id, cell_type, side, super_class, cell_class, sub class, hemibrain_type, top_nt."""
+    connection.execute(
+        """
+        CREATE TABLE flywire_neuron_annotations(
+            root_id BIGINT, cell_type VARCHAR, side VARCHAR, super_class VARCHAR, cell_class VARCHAR,
+            cell_sub_class VARCHAR, hemibrain_type VARCHAR, top_nt VARCHAR
         )
-        connection.executemany(
-            "INSERT INTO flywire_neuron_annotations VALUES (?, ?, ?, ?, nullif(?, ''), nullif(?, ''), nullif(?, ''), ?)",
-            NEURONS,
-        )
+        """
+    )
+    connection.executemany(
+        "INSERT INTO flywire_neuron_annotations VALUES (?, ?, ?, ?, nullif(?, ''), nullif(?, ''), nullif(?, ''), ?)",
+        rows,
+    )
 
 
 def write_hemibrain_fixture(store: Path) -> None:
@@ -164,6 +178,7 @@ def write_hemibrain_fixture(store: Path) -> None:
                 (301, 0.05, 0.8, 0.05, 0.02, 0.02, 0.03, 0.03),
             ],
         )
+        write_flywire_annotations(connection, HEMIBRAIN_CLASS_SOURCE)
 
 
 def run_cli_rows(*args: str) -> tuple[list[dict[str, str]], str, str]:
@@ -556,7 +571,7 @@ class HemibrainPathsTest(unittest.TestCase):
                 "--top", "1", "--csv",
             )
             base = ["--hemibrain", "--store", str(store), "--target-type", "DNa02"]
-            class_error = cli_error("paths", *base, "--source-class", "ALPN")
+            class_rows, _, _ = run_cli_rows("paths", *base, "--source-class", "ALPN", "--via", "LH", "--csv")
             orn_error = cli_error("paths", *base, "--source-type", "DA1_lPN", "--orn-family", "orco")
             olf_name_error = cli_error("paths", *base, "--source-type", "PN")
             type_rows, _, _ = run_cli_rows("paths", *base, "--source-type", "*_*PN*", "--by-type", "--csv")
@@ -574,9 +589,9 @@ class HemibrainPathsTest(unittest.TestCase):
         self.assertEqual(rows[0]["target_side"], "right")
         self.assertEqual((rows[0]["sign"], rows[0]["transmitters"]), ("-1", "acetylcholine > gaba > acetylcholine"))
         self.assertEqual(rows[2]["sign"], "1")
-        self.assertIn("--source-type '*_*PN*'", class_error)
-        self.assertIn("not supported for hemibrain", orn_error)
-        self.assertIn("no class annotations", olf_name_error)
+        self.assertEqual(class_rows, rows[:1])
+        self.assertIn("missing hemibrain_olfaction_orn_pn_connections", orn_error)
+        self.assertIn("The whole-brain equivalent is --source-class ALPN", olf_name_error)
         self.assertEqual([row["path_types"] for row in type_rows], ["DA1_lPN > LHX > DNa02", "DA1_lPN > SMPX > DNa02"])
         self.assertAlmostEqual(float(type_rows[0]["signed_strength"]), -float(type_rows[0]["strength"]), places=6)
         self.assertIn("--source-type '*_*PN*'", olf_name_error)

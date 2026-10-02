@@ -1,8 +1,9 @@
 """Whole-brain neuron labels for path and reach queries.
 
 FlyWire labels come from the pinned Schlegel et al. (2024) annotation table.
-Hemibrain labels come from the compact traced-neuron export (type and instance)
-and the pinned per-body transmitter predictions.
+Hemibrain labels come from the compact traced-neuron export (type and instance),
+the pinned per-body transmitter predictions, and classes per hemibrain type from
+the FlyWire neurons that the same table matches to that type (``hemibrain_type``).
 """
 
 from __future__ import annotations
@@ -60,7 +61,6 @@ class NeuronLabels:
     ids: np.ndarray
     fields: dict[str, np.ndarray]
     sign: np.ndarray
-    has_classes: bool
 
     def __len__(self) -> int:
         return len(self.ids)
@@ -122,18 +122,7 @@ def load_neuron_labels(store: Path, dataset: str) -> NeuronLabels:
 
 
 def load_flywire_labels(connection) -> NeuronLabels:
-    if not table_exists(connection, FLYWIRE_ANNOTATION_TABLE):
-        raise SystemExit(
-            f"missing {FLYWIRE_ANNOTATION_TABLE}; run `fruitloops setup --flywire` "
-            "to import the pinned FlyWire whole-brain annotations"
-        )
-    columns = {row[0] for row in connection.execute(f"DESCRIBE {FLYWIRE_ANNOTATION_TABLE}").fetchall()}
-    missing = [column for column in FLYWIRE_ANNOTATION_COLUMNS if column not in columns]
-    if missing:
-        raise SystemExit(
-            f"{FLYWIRE_ANNOTATION_TABLE} lacks columns {', '.join(missing)}; "
-            "run `fruitloops setup --flywire` to import the pinned FlyWire annotation table"
-        )
+    require_flywire_annotations(connection, "flywire")
     result = connection.execute(
         f"""
         SELECT CAST(root_id AS BIGINT) AS id,
@@ -156,14 +145,41 @@ def load_flywire_labels(connection) -> NeuronLabels:
         ids=np.asarray(result["id"], dtype=np.int64),
         fields=fields,
         sign=transmitter_signs(fields["transmitter"]),
-        has_classes=True,
     )
+
+
+def require_flywire_annotations(connection, dataset: str) -> None:
+    """The FlyWire table gives FlyWire labels and, through ``hemibrain_type``, hemibrain classes."""
+    use = "whole-brain annotations" if dataset == "flywire" else "annotations that give hemibrain classes"
+    hint = f"run `fruitloops setup --{dataset}` to import the pinned FlyWire {use}"
+    if not table_exists(connection, FLYWIRE_ANNOTATION_TABLE):
+        raise SystemExit(f"missing {FLYWIRE_ANNOTATION_TABLE}; {hint}")
+    columns = {row[0] for row in connection.execute(f"DESCRIBE {FLYWIRE_ANNOTATION_TABLE}").fetchall()}
+    missing = [column for column in FLYWIRE_ANNOTATION_COLUMNS if column not in columns]
+    if missing:
+        raise SystemExit(f"{FLYWIRE_ANNOTATION_TABLE} lacks columns {', '.join(missing)}; {hint}")
+
+
+def hemibrain_class_sql(field: str) -> str:
+    """Per hemibrain type, the ``field`` value of more than half of the FlyWire neurons matched to it.
+
+    A FlyWire neuron whose ``hemibrain_type`` lists several types counts for each of them. An empty
+    value counts like any other, so a type whose matched neurons are mostly unclassified gets ''.
+    Types without a value above half, for example a 50/50 split, get no row and stay empty.
+    """
+    return f"""
+        SELECT type, {field}
+        FROM hemibrain_votes
+        GROUP BY type, {field}
+        QUALIFY 2 * count(*) > sum(count(*)) OVER (PARTITION BY type)
+    """
 
 
 def load_hemibrain_labels(connection) -> NeuronLabels:
     if not table_exists(connection, HEMIBRAIN_LABEL_TABLE):
         raise SystemExit(f"missing {HEMIBRAIN_LABEL_TABLE}; run `fruitloops setup --hemibrain`")
     require_hemibrain_transmitters(connection)
+    require_flywire_annotations(connection, "hemibrain")
     # top_nt = the class with the largest mean probability; bodies without a prediction get ''.
     largest = ", ".join(f"t.{name}" for name in HEMIBRAIN_TRANSMITTER_CLASSES)
     classes = " ".join(f"WHEN t.{name} THEN '{name}'" for name in HEMIBRAIN_TRANSMITTER_CLASSES)
@@ -176,11 +192,28 @@ def load_hemibrain_labels(connection) -> NeuronLabels:
             FROM {HEMIBRAIN_LABEL_TABLE}
             WHERE bodyId IS NOT NULL
             GROUP BY bodyId
-        )
+        ),
+        hemibrain_votes AS (
+            SELECT trim(part) AS type, super_class, cell_class
+            FROM (
+                SELECT coalesce(super_class, '') AS super_class,
+                       coalesce(cell_class, '') AS cell_class,
+                       unnest(string_split(hemibrain_type, ',')) AS part
+                FROM {FLYWIRE_ANNOTATION_TABLE}
+                WHERE hemibrain_type IS NOT NULL
+            )
+            WHERE trim(part) <> ''
+        ),
+        super_classes AS ({hemibrain_class_sql("super_class")}),
+        cell_classes AS ({hemibrain_class_sql("cell_class")})
         SELECT traced.id, traced.type, traced.instance,
-               coalesce(CASE greatest({largest}) {classes} END, '') AS top_nt
+               coalesce(CASE greatest({largest}) {classes} END, '') AS top_nt,
+               coalesce(s.super_class, '') AS super_class,
+               coalesce(c.cell_class, '') AS cell_class
         FROM traced
         LEFT JOIN {HEMIBRAIN_TRANSMITTER_TABLE} AS t ON CAST(t.body AS BIGINT) = traced.id
+        LEFT JOIN super_classes AS s ON s.type = traced.type
+        LEFT JOIN cell_classes AS c ON c.type = traced.type
         ORDER BY traced.id
         """
     ).fetchnumpy()
@@ -193,14 +226,14 @@ def load_hemibrain_labels(connection) -> NeuronLabels:
         [sides.get(infer_side(instance), "") for instance in result["instance"]],
         dtype=object,
     )
-    fields["top_nt"] = np.asarray(result["top_nt"], dtype=object)
+    for name in ("top_nt", "super_class", "cell_class"):
+        fields[name] = np.asarray(result[name], dtype=object)
     fields["transmitter"] = apply_transmitter_overrides("hemibrain", fields)
     return NeuronLabels(
         dataset="hemibrain",
         ids=np.asarray(result["id"], dtype=np.int64),
         fields=fields,
         sign=transmitter_signs(fields["transmitter"]),
-        has_classes=False,
     )
 
 

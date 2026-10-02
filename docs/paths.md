@@ -30,12 +30,14 @@ FlyWire setup imports two sources:
   table.
 
 Hemibrain setup imports the v1.2 compact traced-neuron tables, such as
-`hemibrain_traced_roi_connections` and `hemibrain_traced_neurons`, and
+`hemibrain_traced_roi_connections` and `hemibrain_traced_neurons`;
 `hemibrain_body_neurotransmitters`, the pinned per-body transmitter
-predictions (see [Hemibrain predictions](#hemibrain-predictions)). If the
-prediction download or its sha256 check fails, setup reports an `error` row
-and still builds the graph and `olf` stages. `neurons`, `paths`, and `reach`
-with `--hemibrain` then stop until a later setup imports the table.
+predictions (see [Hemibrain predictions](#hemibrain-predictions)); and
+`flywire_neuron_annotations`, the pinned FlyWire table above, which gives the
+hemibrain classes (see [Hemibrain classes](#hemibrain-classes)). If a download
+or its sha256 check fails, setup reports an `error` row and still builds the
+graph and `olf` stages. `neurons`, `paths`, and `reach` with `--hemibrain` then
+stop until a later setup imports the table.
 
 Setup then builds a sparse graph cache for each dataset, at
 `<store stem>.graphs/<dataset>.npz` next to the DuckDB store, for example
@@ -63,8 +65,8 @@ and `--target-*` flags. `neurons` uses the same flags without a prefix.
 | Flag | Vocabulary | Example |
 | --- | --- | --- |
 | `--source-type`, `--target-type` | FlyWire `cell_type` or hemibrain `type`. Exact names or shell wildcards. | `DNa02`, `'DNa*'` |
-| `--source-class`, `--target-class` | FlyWire `cell_class` | `ALPN`, `Kenyon_Cell`, `MBON` |
-| `--source-super-class`, `--target-super-class` | FlyWire `super_class` | `descending`, `central` |
+| `--source-class`, `--target-class` | FlyWire `cell_class`; for hemibrain, from matched FlyWire types | `ALPN`, `Kenyon_Cell`, `MBON` |
+| `--source-super-class`, `--target-super-class` | FlyWire `super_class`; for hemibrain, from matched FlyWire types | `descending`, `central` |
 | `--source-id`, `--target-id` | FlyWire root ids or hemibrain body ids | `720575940604737708` |
 
 Values in one flag combine with OR. Repeat the flag or separate values with
@@ -75,8 +77,9 @@ neurons whose type starts with `DNa`.
 A selector that matches nothing stops the command with an error. For unknown
 names the error suggests close matches. If you pass an `olf` class name, the
 error gives the whole-brain equivalent: `PN` -> `ALPN`, `LN` -> `ALLN`,
-`KC` -> `Kenyon_Cell`, and `ORN` -> `olfactory`. Hemibrain has no class
-annotations, so there the error names a type pattern instead.
+`KC` -> `Kenyon_Cell`, and `ORN` -> `olfactory`. For hemibrain, the `PN` error
+also names the type pattern `'*_*PN*'`, which includes the PN types without a
+FlyWire match.
 
 ```bash
 fruitloops neurons --flywire --type DNa02 --csv
@@ -84,12 +87,57 @@ fruitloops neurons --flywire --type 'PFL*' --csv
 fruitloops neurons --flywire --type 'LAL030*' --csv
 ```
 
-The hemibrain compact export has types and instances only. For hemibrain, use
-`--*-type` and `--*-id`. Antennal-lobe PN types follow the pattern
+Hemibrain antennal-lobe PN types follow the pattern
 `<glomeruli>_<tract>PN<suffix>`, for example `DA1_lPN`, `M_l2PNl20`, and
 `VP1d+VP4_l2PN1`. The wildcard `'*_*PN*'` selects these types. It does not
 select WEDPN or LPN types. Hemibrain side comes from the `_R`/`_L` instance
 suffix.
+
+### Hemibrain classes
+
+The hemibrain compact export has types and instances, but no classes.
+fruitloops gives each hemibrain type the classes of the FlyWire neurons that
+Schlegel et al. (2024) matched to it, in the `hemibrain_type` column of the
+pinned FlyWire table. This is a cross-dataset mapping, not a hemibrain
+annotation. The rule applies to `super_class` and `cell_class` separately:
+
+- A FlyWire neuron counts for each type in its comma-separated
+  `hemibrain_type` list.
+- A type gets the class of more than half of its matched FlyWire neurons. An
+  empty class counts like any other value, so a type whose matched neurons are
+  mostly unclassified has no class.
+- A type without such a class has no class. In the pinned table, this applies
+  to 5 types, all for `cell_class`: `LHPV4b6` and `LHPV4b8` (2 LHLN, 2
+  unclassified), `VP2+Z_lvPN` and `Z_lvPNm1` (6 ALPN, 6 unclassified), and
+  `mALC1` (2 LO, 2 LO.LOP). No type is ambiguous for `super_class`.
+- Types without a matched FlyWire neuron, and bodies without a type, have no
+  class.
+
+Of the 21,739 traced bodies, 15,710 (72%) have a super class; they belong to
+4,158 of the 5,554 types. 5,267 bodies of 645 types have a cell class; FlyWire
+also leaves the cell class of many central neurons empty. 2,016 bodies have
+no type.
+
+Checks against type names:
+
+- `'*_*PN*'`: 178 of its 190 types (317 of 337 bodies) are `ALPN`. Thus
+  `--source-class ALPN` selects 317 bodies, all of them in `'*_*PN*'`. The
+  other 20 bodies are in 10 types without a FlyWire match, for example
+  `M_vPNml74`, and in `VP2+Z_lvPN` and `Z_lvPNm1`.
+- `KC*`: 12 of 14 types (1,918 of 1,927 bodies) are `Kenyon_Cell`. `KCg-s4`
+  and `KCg-t` have no FlyWire match. The `kc` route and the Kenyon-cell
+  transmitter override use the type names, so they include all 14 types.
+- `MBON*`: all 36 types (68 bodies) are `MBON`.
+- `DN*`: 44 of 51 types (81 of 101 bodies) are `descending`. `DN1a`, `DN1pA`,
+  `DN1pB`, and `DNd01` are `central`, and `DNES1` to `DNES3` are `endocrine`.
+
+Schlegel et al. (2024) also give a hemibrain `cell_class` for 3,689 traced
+bodies, in nine classes and without a super class
+(`Supplemental_file5_hemibrain_meta.csv` at the same commit). The mapping gives
+the same class for 2,818 of them and a different class for 2 (`M_lv2PN9t49`:
+`ALPN` instead of `ALON`). The other 869 have no class, mostly because their
+types are connectivity subtypes, such as `PFNp_b` and `PAM04_a`, that no
+FlyWire neuron lists.
 
 ## Definitions
 
@@ -132,14 +180,11 @@ suffix.
   values share the best rank.
 - Untyped neurons are grouped under a bracketed label such as `[central]`.
 
-## ORN Seed Weighting (FlyWire)
+## ORN Seed Weighting
 
 Without ORN options, each source neuron has seed weight 1. With ORN options,
-each source neuron is seeded by its input fraction from a chosen ORN set:
-
-seed(PN) = synapses from the ORN set onto the PN / all input synapses of the PN.
-
-All ORN synapses count, with no threshold.
+each source neuron is seeded by its input fraction from a chosen ORN set. Both
+datasets take the same options:
 
 - `--orn-family orco|ir|gr|amt|thermo|hygro`: all verified glomeruli of a
   receptor family.
@@ -148,11 +193,19 @@ All ORN synapses count, with no threshold.
   family or a glomerulus. `reach --by-side` sets the side itself, so it rejects
   `--orn-side`.
 
-ORNs are FlyWire sensory neurons of type `ORN_<glomerulus>`,
-`TRN_<glomerulus>`, or `HRN_<glomerulus>`. Families come from the packaged
-table `fruitloops/curated/glomerulus_receptor_families.csv`. Each row gives
-the receptor, the primary source, the DOI, and the location of the evidence.
-Rows marked `verified=false` are never used for family seeds.
+For FlyWire:
+
+seed(PN) = synapses from the ORN set onto the PN / all input synapses of the PN.
+
+All ORN synapses count, with no threshold. ORNs are FlyWire sensory neurons of
+type `ORN_<glomerulus>`, `TRN_<glomerulus>`, or `HRN_<glomerulus>`; the side is
+their nerve-entry side. The hemibrain definition is in
+[Hemibrain ORN seeds](#hemibrain-orn-seeds).
+
+Families come from the packaged table
+`fruitloops/curated/glomerulus_receptor_families.csv`. Each row gives the
+receptor, the primary source, the DOI, and the location of the evidence. Rows
+marked `verified=false` are never used for family seeds.
 
 - `orco`: glomeruli whose tuning receptor is an odorant receptor (Or). The 38
   verified Orco glomeruli are all olfactory ORN glomeruli except the IR,
@@ -160,9 +213,9 @@ Rows marked `verified=false` are never used for family seeds.
 - `ir`: DC4, DL2d, DL2v, DP1l, DP1m, VC5, VL1, VL2a, VL2p, VM1, VM4. VL1 is
   an Ir75d glomerulus (Silbering et al. 2011).
 - `gr`: V (Gr21a/Gr63a).
-- `amt`: VM6v, VM6m, VM6l. These are ammonium-transporter (Amt, Rh50+)
-  neurons. The Orco knock-in does not label them (Task et al. 2022; Vulpe et
-  al. 2021).
+- `amt`: VM6v, VM6m, VM6l, and the undivided hemibrain VM6. These are
+  ammonium-transporter (Amt, Rh50+) neurons. The Orco knock-in does not label
+  them (Task et al. 2022; Vulpe et al. 2021).
 - `thermo`: VP2, VP3a. `hygro`: VP1d, VP4, VP5.
 - Unverified: VP1l and VP1m. FlyWire types them `HRN_VP1l` and `TRN_VP1m`,
   but their receptors (Ir21a and Ir68a; Marin et al. 2020) suggest the
@@ -174,8 +227,62 @@ Rows marked `verified=false` are never used for family seeds.
 Orco-weighted values depend on this set. For example, the multiglomerular
 `M_l2PNl20` receives VM6 input, so counting VM6 as Orco raises its seed weight.
 
-ORN weighting is FlyWire-only. The hemibrain compact export lacks most ORNs and
-their glomerulus labels.
+### Hemibrain ORN seeds
+
+The hemibrain compact export holds only 2 of the 2,574 ORNs that synapse onto
+PNs; most hemibrain ORNs are cropped. Hemibrain seeds therefore use
+`hemibrain_olfaction_orn_pn_connections`, which `fruitloops setup --hemibrain`
+builds from the pinned neo4j bundle (see
+[setup](setup.md#hemibrain-tables-from-the-neo4j-bundle)). Without this table,
+the ORN options stop with a message to run `fruitloops setup --hemibrain`.
+
+seed(PN) = synapses from the ORN set onto the PN / (input synapses of the PN
+from traced partners that are not ORNs + all its synapses from ORNs).
+
+- ORN synapses come from the ORN table, summed over its rows, with no
+  threshold. The other input synapses come from the hemibrain graph, which
+  counts traced partners only.
+- The two traced ORNs, `ORN_DM3_L` and `ORN_DM6_L`, are in both. Their
+  synapses count once, from the ORN table; for every traced PN partner, both
+  sources give the same count.
+- The graph weights do not change. Only the seeds use the ORN table.
+- Glomeruli come from the `ORN_<glomerulus>` types. Schlegel et al. (2021,
+  Table 2) renamed three hemibrain v1.2 glomeruli, and FlyWire and the family
+  table use the new names. fruitloops uses them too: `ORN_VC3l` is `VC3`,
+  `ORN_VC3m` is `VC5`, and `ORN_VC5` is `VM6`. The packaged table
+  `fruitloops/curated/hemibrain_glomerulus_names.csv` lists these renames.
+  Thus `--orn-glomerulus VC5` selects the v1.2 type `ORN_VC3m`, and a note on
+  stderr says so. Hemibrain does not split VM6 into VM6v, VM6m, and VM6l, so
+  the family table has an `amt` row for the undivided VM6.
+- All 51 hemibrain ORN glomeruli have a verified family: 38 `orco`, 11 `ir`,
+  `V` (`gr`), and `VM6` (`amt`). The table has `ORN_` types only, so
+  `--orn-family thermo` and `--orn-family hygro` find no hemibrain ORNs and
+  stop with an error.
+- The side comes from the ORN instance suffix. The hemibrain holds the right
+  antennal lobe, which gets ORNs from both antennae. Schlegel et al. (2021)
+  assigned the soma side of each ORN from the path of its axon to the nerve
+  entry point. In their ORN table (`FIB_RNs.csv` in
+  `flyconnectome/hemibrain_olf_data`, commit `3a952a1`), all 698 ORNs with the
+  `_R` suffix are ipsilateral, all 572 with `_L` are contralateral, and the
+  1,304 without a suffix have no side. Thus `_R` is the right antenna and `_L`
+  the left antenna. ORNs without a side count in seeds without `--orn-side`,
+  but in neither side.
+
+Orco seeds of four uniglomerular PN types, as the mean over the type's PNs
+(number of PNs in parentheses):
+
+| PN type | FlyWire | hemibrain |
+| --- | --- | --- |
+| `DA1_lPN` | 0.442 (15) | 0.624 (7) |
+| `DM1_lPN` | 0.431 (2) | 0.533 (1) |
+| `DL5_adPN` | 0.461 (2) | 0.500 (1) |
+| `DM4_adPN` | 0.441 (2) | 0.518 (1) |
+
+The hemibrain seeds are higher. The denominators differ: for example, a
+hemibrain DA1 PN gets on average 798 synapses from traced partners and 1,324
+from ORNs, and a FlyWire DA1 PN gets 843 synapses in all, 371 of them from
+ORNs. Most hemibrain ORNs are cropped, and the hemibrain graph omits untraced
+partners, so the two datasets need not give equal seeds.
 
 ## Transmitter Signs
 
@@ -194,8 +301,9 @@ Kenyon cells to acetylcholine (Barnstedt et al. 2016). The classifier predicts
 dopamine for most FlyWire Kenyon cells and for all 1,927 hemibrain Kenyon
 cells. Each row sets the transmitter of the neurons whose label field has
 exactly the row's value. The FlyWire row matches `cell_class` `Kenyon_Cell`.
-Hemibrain has no class annotations, so its rows list the 14 hemibrain v1.2
-Kenyon-cell types, from `KCa'b'-ap1` to `KCg-t`. `neurons` reports the
+The hemibrain rows list the 14 hemibrain v1.2 Kenyon-cell types, from
+`KCa'b'-ap1` to `KCg-t`, because two of them have no
+[hemibrain class](#hemibrain-classes). `neurons` reports the
 prediction as `top_nt` and the result as `transmitter`.
 
 - `paths` always reports `sign` (the product over presynaptic neurons),
@@ -262,6 +370,7 @@ Coverage and limits:
 
 `reach --by-side` splits seeds by side. With ORN weighting, the side is the
 ORN (antenna) side. Without it, the side is the source neuron's soma side.
+Hemibrain ORN sides are described in [Hemibrain ORN seeds](#hemibrain-orn-seeds).
 
 - ipsi = mean over left target neurons of reach from left seeds, plus mean
   over right target neurons of reach from right seeds.
@@ -432,6 +541,22 @@ The three strongest 2-hop paths to DNa02 go through different relays:
 All three paths have sign 1, because M_l2PNl20 and the three relays are
 predicted cholinergic. `--signed` gives the same three paths.
 
+With Orco-weighted seeds and the default 6 hops:
+
+```bash
+fruitloops paths --hemibrain --source-type '*_*PN*' --target-type DNa02 --orn-family orco --csv
+# stderr: 337 source neurons (--source-type *_*PN*); 244 with seed > 0; ...
+```
+
+| rank | path_types | strength | seed_weight | sign |
+| --- | --- | --- | --- | --- |
+| 1 | M_l2PNl20 > SIP022 > DNa02 | 5.82021e-05 | 0.264583 | 1 |
+| 2 | MZ_lv2PN > AVLP299_a > DNa02 | 2.90753e-05 | 0.506133 | -1 |
+| 3 | M_l2PNl20 > LAL030_a > DNa02 | 2.63505e-05 | 0.264583 | 1 |
+
+All three paths have 2 hops. Rank 1 and rank 3 are the unweighted paths times
+the seed of M_l2PNl20. MZ_lv2PN is predicted GABAergic, so its path has sign -1.
+
 To split the routes by first-synapse region, repeat `--via`, for example
 `--via AL --via LH --via MB --via other --via kc`. For reach by route, use
 `--by-route`.
@@ -446,6 +571,9 @@ To split the routes by first-synapse region, repeat `--via`, for example
   predictions), and its supplemental files, doi:10.5281/zenodo.10593546
   (hemibrain synapse-level predictions).
 - Scheffer et al. 2020, eLife, doi:10.7554/eLife.57443 (hemibrain).
+- Schlegel et al. 2021, eLife, doi:10.7554/eLife.66018, and its data
+  repository `flyconnectome/hemibrain_olf_data` (hemibrain ORN sides and
+  glomerulus names).
 - Barnstedt et al. 2016, Neuron, doi:10.1016/j.neuron.2016.02.015 (Kenyon
   cells are cholinergic).
 - Larsson et al. 2004, Neuron, doi:10.1016/j.neuron.2004.08.019 (Or83b/Orco is

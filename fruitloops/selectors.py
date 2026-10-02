@@ -8,6 +8,9 @@ Each flag has one vocabulary:
 - ``--super-class``: FlyWire ``super_class`` names such as ``descending``.
 - ``--id``: FlyWire root ids or hemibrain body ids.
 
+Hemibrain neurons get both classes from the FlyWire neurons matched to their type
+(see ``neuron_labels``), so the class vocabulary is the same in both datasets.
+
 Values inside one flag are combined with OR (repeat the flag or separate values
 with commas). Different flags are combined with AND.
 """
@@ -36,7 +39,8 @@ OLF_CLASS_EQUIVALENTS = {
     "APL": "--{prefix}type APL",
     "DAN": "--{prefix}class DAN",
 }
-TYPE_HINT = "select types with --{prefix}type, for example --{prefix}type '*_*PN*' for antennal-lobe PN types"
+# Hemibrain classes come from matched FlyWire types, so a type pattern also finds unmatched PN types.
+HEMIBRAIN_PN_HINT = "; --{prefix}type '*_*PN*' also selects the hemibrain PN types without a FlyWire match"
 
 
 @dataclass(frozen=True)
@@ -62,7 +66,7 @@ def add_selector_args(parser: argparse.ArgumentParser, prefix: str = "", role: s
         action="append",
         default=[],
         metavar="CLASS",
-        help=f"{label}FlyWire cell_class, for example ALPN, Kenyon_Cell, MBON.",
+        help=f"{label}FlyWire cell_class (hemibrain: from matched FlyWire types), for example ALPN, Kenyon_Cell, MBON.",
     )
     group.add_argument(
         f"--{prefix}super-class",
@@ -70,7 +74,7 @@ def add_selector_args(parser: argparse.ArgumentParser, prefix: str = "", role: s
         action="append",
         default=[],
         metavar="SUPER_CLASS",
-        help=f"{label}FlyWire super_class, for example descending, central, sensory.",
+        help=f"{label}FlyWire super_class (hemibrain: from matched FlyWire types), for example descending, central.",
     )
     group.add_argument(
         f"--{prefix}id",
@@ -115,11 +119,6 @@ def match_kind(labels: NeuronLabels, kind: str, items: list[str], prefix: str) -
         return match_ids(labels, items, flag)
     if kind == "type":
         return match_names(labels, labels.field("type"), items, flag, "cell type", prefix)
-    if not labels.has_classes:
-        raise SystemExit(
-            f"{flag} is not available for {labels.dataset}: the compact export has no class annotations; "
-            + TYPE_HINT.format(prefix=prefix)
-        )
     field = "cell_class" if kind == "class" else "super_class"
     return match_names(labels, labels.field(field), items, flag, field, prefix, wildcards=False)
 
@@ -157,7 +156,7 @@ def match_names(
             if not matches:
                 raise SystemExit(
                     f"{flag} '{item}' matches no {labels.dataset} {vocabulary_name} names"
-                    f"{olf_hint(item, prefix, labels.has_classes)}"
+                    f"{olf_hint(item, prefix, labels.dataset)}"
                 )
             selected.update(matches)
         elif item in known:
@@ -180,7 +179,7 @@ def unknown_name_message(
         value for value in difflib.get_close_matches(item, vocabulary, n=5, cutoff=0.6) if value not in folded
     ]
     message = f"{flag} '{item}' is not a {labels.dataset} {vocabulary_name}"
-    hint = olf_hint(item, prefix, labels.has_classes)
+    hint = olf_hint(item, prefix, labels.dataset)
     if hint:
         return message + hint
     if close:
@@ -188,15 +187,11 @@ def unknown_name_message(
     return f"{message}; no close matches (names are case-sensitive)"
 
 
-def olf_hint(item: str, prefix: str, has_classes: bool) -> str:
+def olf_hint(item: str, prefix: str, dataset: str) -> str:
     equivalent = OLF_CLASS_EQUIVALENTS.get(item.upper())
     if not equivalent:
         return ""
-    if not has_classes:
-        return f"; {item} is an `olf` class name and this dataset has no class annotations; " + TYPE_HINT.format(
-            prefix=prefix
-        )
-    return (
-        f"; {item} is an `olf` class name. The whole-brain equivalent is "
-        f"{equivalent.format(prefix=prefix)}"
-    )
+    hint = f"; {item} is an `olf` class name. The whole-brain equivalent is {equivalent.format(prefix=prefix)}"
+    if dataset == "hemibrain" and item.upper() == "PN":
+        hint += HEMIBRAIN_PN_HINT.format(prefix=prefix)
+    return hint

@@ -10,7 +10,7 @@ from fruitloops.bulk import list_sources, setup_hemibrain_bulk
 from fruitloops.curated import transmitter_overrides
 from fruitloops.neuron_labels import HEMIBRAIN_TRANSMITTER_CLASSES, load_neuron_labels
 from fruitloops.table_import import import_to_duckdb
-from test_wholebrain import HAS_DUCKDB, cli_error, run_cli_rows
+from test_wholebrain import HAS_DUCKDB, HEMIBRAIN_CLASS_SOURCE, cli_error, run_cli_rows, write_flywire_annotations
 
 # Hemibrain fixture. DA1_lPN 101 (right) and 102 (left) are the sources; DNa02 301 (right) and
 # 302 (left) are the targets. SMPX has an ACh neuron (202) and a glutamate neuron (205), so it is a
@@ -94,6 +94,7 @@ def write_compact_tables(store: Path) -> None:
         connection.executemany("INSERT INTO hemibrain_traced_roi_connections VALUES (?, ?, ?, ?)", EDGES)
         connection.execute("CREATE TABLE hemibrain_traced_neurons(bodyId BIGINT, type VARCHAR, instance VARCHAR)")
         connection.executemany("INSERT INTO hemibrain_traced_neurons VALUES (?, ?, ?)", NEURONS)
+        write_flywire_annotations(connection, HEMIBRAIN_CLASS_SOURCE)
 
 
 @unittest.skipUnless(HAS_DUCKDB, "duckdb not installed")
@@ -222,12 +223,12 @@ class HemibrainTransmitterTest(unittest.TestCase):
             self.assertIn("missing hemibrain_body_neurotransmitters", error)
             self.assertIn("fruitloops setup --hemibrain", error)
 
-    def test_orn_weighting_stays_flywire_only(self) -> None:
+    def test_orn_weighting_without_orn_table_names_setup(self) -> None:
         error = cli_error(
             "paths", *self.base, "--source-type", "DA1_lPN", "--target-type", "DNa02", "--orn-family", "orco"
         )
 
-        self.assertIn("ORN weighting is not supported for hemibrain", error)
+        self.assertIn("missing hemibrain_olfaction_orn_pn_connections; run `fruitloops setup --hemibrain`", error)
 
 
 class HemibrainTransmitterSourceTest(unittest.TestCase):
@@ -254,7 +255,7 @@ class HemibrainTransmitterSourceTest(unittest.TestCase):
                          {("type", "acetylcholine", "10.1016/j.neuron.2016.02.015")})
 
     @unittest.skipUnless(HAS_DUCKDB, "duckdb not installed")
-    def test_setup_imports_transmitters_as_own_stage(self) -> None:
+    def test_setup_imports_transmitters_and_class_source_as_own_stages(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             archive = root / "exported-traced-adjacencies-v1.2.tar.gz"
@@ -270,14 +271,17 @@ class HemibrainTransmitterSourceTest(unittest.TestCase):
                     handle.add(member, arcname=f"exported-traced-adjacencies-v1.2/{name}")
             predictions = root / "hemibrain-v1.2-body-mean-neurotransmitters.feather"
             write_predictions(predictions, {101: PREDICTIONS[101], 201: PREDICTIONS[201]})
+            annotations = root / "annotations.tsv"
+            annotations.write_text("root_id\tcell_type\themibrain_type\n9001\tDA1_lPN\tDA1_lPN\n")
             store = root / "store.duckdb"
+            labels = {"body-neurotransmitters": predictions, "neuron-annotations": annotations}
 
             def fake_download(dataset, kind, output_dir):
-                return predictions if kind == "body-neurotransmitters" else archive
+                return labels.get(kind, archive)
 
             def failing_download(dataset, kind, output_dir):
-                if kind == "body-neurotransmitters":
-                    raise ValueError("sha256 mismatch for hemibrain:body-neurotransmitters")
+                if kind in labels:
+                    raise ValueError(f"sha256 mismatch for {dataset}:{kind}")
                 return archive
 
             with patch("fruitloops.bulk.download_source", side_effect=fake_download):
@@ -290,9 +294,12 @@ class HemibrainTransmitterSourceTest(unittest.TestCase):
             return {(row["action"], row["target"]): row["status"] for row in rows}
 
         self.assertEqual(statuses(first)[("import", "hemibrain_body_neurotransmitters")], "2")
+        self.assertEqual(statuses(first)[("import", "flywire_neuron_annotations")], "1")
         self.assertEqual(statuses(second)[("import", "hemibrain_body_neurotransmitters")], "current:2")
+        self.assertEqual(statuses(second)[("import", "flywire_neuron_annotations")], "current:1")
         self.assertEqual(statuses(second)[("import", "hemibrain_traced_neurons")], "current:2")
         self.assertTrue(statuses(failed)[("download", "body-neurotransmitters")].startswith("error: sha256 mismatch"))
+        self.assertTrue(statuses(failed)[("download", "neuron-annotations")].startswith("error: sha256 mismatch"))
         self.assertEqual(statuses(failed)[("import", "hemibrain_traced_neurons")], "2")
 
 

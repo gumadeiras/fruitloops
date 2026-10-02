@@ -14,6 +14,7 @@ from importlib import resources
 GLOMERULUS_FAMILIES_FILE = "glomerulus_receptor_families.csv"
 FAMILY_ORDER = ("orco", "ir", "gr", "amt", "thermo", "hygro")
 TRANSMITTER_OVERRIDES_FILE = "transmitter_overrides.csv"
+HEMIBRAIN_GLOMERULUS_NAMES_FILE = "hemibrain_glomerulus_names.csv"
 
 
 @dataclass(frozen=True)
@@ -80,6 +81,12 @@ def family_glomeruli(family: str) -> set[str]:
         for entry in glomerulus_families().values()
         if entry.family == family and entry.verified
     }
+
+
+@lru_cache(maxsize=1)
+def hemibrain_glomerulus_names() -> dict[str, str]:
+    """Hemibrain v1.2 glomerulus name -> the name in the receptor-family table, where they differ."""
+    return {row["hemibrain_glomerulus"]: row["glomerulus"] for row in read_curated_rows(HEMIBRAIN_GLOMERULUS_NAMES_FILE)}
 
 
 @lru_cache(maxsize=1)

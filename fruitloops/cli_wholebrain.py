@@ -163,14 +163,20 @@ def add_query_args(parser: argparse.ArgumentParser) -> None:
         default=5,
         help="Keep a directed edge when its pair synapses (summed over neuropils) reach this value (default 5).",
     )
-    orn = parser.add_argument_group("ORN seed weighting (FlyWire)")
+    orn = parser.add_argument_group("ORN seed weighting")
     choice = orn.add_mutually_exclusive_group()
     choice.add_argument(
         "--orn-family",
         choices=receptor_families(),
         help="Seed each source by its input fraction from verified glomeruli of this receptor family.",
     )
-    choice.add_argument("--orn-glomerulus", help="Seed each source by its input fraction from one glomerulus.")
+    choice.add_argument(
+        "--orn-glomerulus",
+        help=(
+            "Seed each source by its input fraction from one glomerulus, for example DA1. "
+            "Hemibrain VC3, VC5, and VM6 are the v1.2 types ORN_VC3l, ORN_VC3m, and ORN_VC5."
+        ),
+    )
     orn.add_argument("--orn-side", choices=("left", "right"), help="Use only ORNs from this antenna side.")
 
 
@@ -181,20 +187,9 @@ def orn_spec(args: argparse.Namespace) -> OrnSeedSpec:
     return spec
 
 
-def require_flywire_option(dataset: str, option: str, reason: str) -> None:
-    if dataset != "flywire":
-        raise SystemExit(f"{option} is not supported for {dataset}: {reason}; use --flywire")
-
-
 def build_query(args: argparse.Namespace, command: str):
     dataset = require_dataset(args)
     spec = orn_spec(args)
-    if spec.active:
-        require_flywire_option(
-            dataset,
-            "ORN weighting",
-            "the compact adjacency export lacks most ORNs and their glomerulus labels",
-        )
     return prepare_query(
         command=command,
         store=args.store,

@@ -282,6 +282,9 @@ def setup_hemibrain_bulk(
     rows.extend(setup_optimize_rows(source.dataset, source.table_name, "hemibrain", store, skip_current=skip_current))
     transmitters = resolve_source("hemibrain", "body-neurotransmitters")
     rows.extend(setup_label_source_rows(transmitters, bulk_dir, store, replace, skip_current=skip_current))
+    # Hemibrain classes come from the FlyWire neurons matched to each hemibrain type.
+    annotations = resolve_source("flywire", "neuron-annotations")
+    rows.extend(setup_label_source_rows(annotations, bulk_dir, store, replace, skip_current=skip_current))
     return rows
 
 

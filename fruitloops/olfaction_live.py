@@ -41,9 +41,14 @@ def cache_olfaction_annotations(
     prefix = safe_identifier(prefix)
     if not store.exists():
         raise ValueError(f"missing DuckDB store: {store}")
+    # build_olfaction_cache opens its own connection, so it runs while this function holds none:
+    # DuckDB refuses to index a table whose updates an open transaction of another connection
+    # can still see.
     with duckdb.connect(str(store)) as connection:
-        if not table_exists(connection, f"{prefix}_neurons"):
-            build_olfaction_cache(store=store, datasets=list(selected), replace=True, prefix=prefix)
+        olf_missing = not table_exists(connection, f"{prefix}_neurons")
+    if olf_missing:
+        build_olfaction_cache(store=store, datasets=list(selected), replace=True, prefix=prefix)
+    with duckdb.connect(str(store)) as connection:
         rows = []
         if "hemibrain" in selected:
             try:

@@ -1,0 +1,4 @@
+hemibrain_glomerulus,glomerulus,source,doi,evidence,note
+VC3l,VC3,Schlegel et al. 2021,10.7554/eLife.66018,Table 2 (VC3: hemibrain v1.1 + 1.2 VC3l; Or35a),Hemibrain v1.2 types ORN_VC3l; FlyWire and the receptor-family table use VC3.
+VC3m,VC5,Schlegel et al. 2021,10.7554/eLife.66018,Table 2 (VC5: hemibrain v1.1 + 1.2 VC3m; Ir41a),Hemibrain v1.2 types ORN_VC3m; FlyWire and the receptor-family table use VC5.
+VC5,VM6,Schlegel et al. 2021,10.7554/eLife.66018,Table 2 (VM6 (v + m + l): hemibrain v1.1 + 1.2 VC5; Rh50/Amt),Hemibrain v1.2 types ORN_VC5; its ORNs are not split into VM6v/VM6m/VM6l there.

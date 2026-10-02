@@ -44,7 +44,9 @@ store, creates the live cache directory, optimizes imported tables, and builds
 derived `olf_*` tables. FlyWire setup also imports the pinned whole-brain
 neuron annotation table (`flywire_neuron_annotations`). Hemibrain setup also
 imports the pinned per-body transmitter predictions
-(`hemibrain_body_neurotransmitters`, 46 MB) and builds the ORN->PN and
+(`hemibrain_body_neurotransmitters`, 46 MB) and the same FlyWire annotation
+table, which gives the hemibrain classes
+([docs/paths.md](paths.md#hemibrain-classes)). It builds the ORN->PN and
 olfaction annotation tables from the pinned neuPrint neo4j bundle, without
 credentials; see
 [Hemibrain tables from the neo4j bundle](#hemibrain-tables-from-the-neo4j-bundle).
@@ -103,8 +105,8 @@ datasets of the last build; run `setup` or `olf build` to change them.
 If the download or the sha256 check of a pinned label source (FlyWire
 annotations or hemibrain transmitter predictions) fails, setup reports an
 `error` row and continues with the graph and olfaction stages. `neurons`,
-`paths`, and `reach` for that dataset stop until a later setup imports the
-table.
+`paths`, and `reach` for each dataset that needs the table stop until a later
+setup imports it. Both datasets need the FlyWire annotations.
 
 If the hemibrain neo4j bundle cannot be read or verified, setup reports an
 `error` row for `neo4j-inputs` and keeps the other hemibrain tables.
@@ -143,7 +145,9 @@ from the neo4j bundle, as described in the next section.
 `hemibrain_olfaction_neuron_annotations` from the bulk source
 `hemibrain:neo4j-inputs`, then rebuild the `olf_*` tables. No credentials are
 needed. After setup, `olf glomerulus DM1 --hemibrain` and
-`olf inputs --source-class ORN --hemibrain` count all hemibrain ORNs.
+`olf inputs --source-class ORN --hemibrain` count all hemibrain ORNs, and
+`paths --hemibrain` and `reach --hemibrain` use the ORN->PN table for ORN-weighted
+seeds ([docs/paths.md](paths.md#hemibrain-orn-seeds)).
 
 To refresh only these two tables from the bundle:
 

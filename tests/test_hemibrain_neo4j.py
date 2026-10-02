@@ -116,7 +116,7 @@ def pinned_to(path: Path, *, member_pins: bool = True, sha256: bool = True, url:
             yield
 
 
-def write_compact_store(store: Path) -> None:
+def write_compact_store(store: Path, build: bool = True) -> None:
     """Write the compact hemibrain tables and build the olf tables, as setup does first."""
     import duckdb
 
@@ -130,7 +130,8 @@ def write_compact_store(store: Path) -> None:
             "INSERT INTO hemibrain_traced_neurons VALUES (?, ?, ?)",
             [(21, "DM1_lPN", "DM1_lPN_R"), (31, "lLN2F", "lLN2F_R"), (41, "FB1", "FB1_R")],
         )
-    build_olfaction_cache(store=store, datasets=["hemibrain"], replace=True, skip_current=True)
+    if build:
+        build_olfaction_cache(store=store, datasets=["hemibrain"], replace=True, skip_current=True)
 
 
 def run_cli(*args: str) -> tuple[list[dict[str, str]], str]:
@@ -278,6 +279,83 @@ class BundleCacheTest(unittest.TestCase):
 
         with self.assertRaisesRegex(BundleError, "cannot open hemibrain neo4j bundle"):
             hemibrain_neo4j.read_olfaction_bundle(BytesIO(b"not a zip"), "bytes")
+
+
+@unittest.skipUnless(HAS_DUCKDB, "duckdb not installed")
+class MissingOlfTablesTest(unittest.TestCase):
+    """cache-annotations on a store whose annotation tables exist but whose olf tables do not."""
+
+    def setUp(self) -> None:
+        import duckdb
+        import pandas as pd
+
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.store = root / "store.duckdb"
+        self.bulk = root / "bulk"
+        self.bundle = write_bundle(source_path(resolve_source(*BUNDLE_KEY), self.bulk / "raw"))
+        write_compact_store(self.store, build=False)
+        with duckdb.connect(str(self.store)) as connection:
+            replace_table_from_frames(connection, HEMIBRAIN_OLFACTION_ANNOTATION_TABLE, [live_annotation_frame()])
+            replace_table_from_frames(
+                connection,
+                HEMIBRAIN_OLFACTION_ORN_PN_TABLE,
+                [pd.DataFrame(sorted(EXPECTED_ORN_PN, key=str), columns=ORN_PN_COLUMNS)],
+            )
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def cache(self, *flags: str) -> list[dict[str, str]]:
+        rows, _ = run_cli("olf", "--store", str(self.store), "cache-annotations", "--hemibrain", *flags, "--format", "csv")
+        return rows
+
+    def assert_cached_and_built(self, rows: list[dict[str, str]]) -> None:
+        statuses = {(row["table"], row["status"]) for row in rows}
+        self.assertIn((HEMIBRAIN_OLFACTION_ORN_PN_TABLE, "cached"), statuses)
+        self.assertIn((HEMIBRAIN_OLFACTION_ANNOTATION_TABLE, "cached"), statuses)
+        self.assertIn(("olf_neurons", "built"), statuses)
+        self.assertNotIn("error", {row["status"] for row in rows})
+        glomerulus, _ = run_cli("olf", "--store", str(self.store), "glomerulus", "DM1", "--hemibrain", "--format", "csv")
+        self.assertEqual((glomerulus[0]["orn_count"], glomerulus[0]["orn_to_pn_synapses"]), ("2", "10"))
+
+    def test_bundle_source_builds_missing_olf_tables_first(self) -> None:
+        with pinned_to(self.bundle):
+            rows = self.cache("--source", "neo4j-inputs", "--bulk-dir", str(self.bulk))
+
+        self.assert_cached_and_built(rows)
+
+    def test_live_source_builds_missing_olf_tables_first(self) -> None:
+        with (
+            patch("fruitloops.live.hemibrain_client"),
+            patch("fruitloops.live.fetch_hemibrain_custom", side_effect=live_hemibrain_frame),
+        ):
+            rows = self.cache()
+
+        self.assert_cached_and_built(rows)
+
+
+ORN_PN_COLUMNS = ["bodyId_pre", "bodyId_post", "roi", "weight", "pre_type", "pre_instance", "post_type", "post_instance"]
+
+
+def live_hemibrain_frame(client, query: str):
+    """Answer the two live neuPrint queries from the bundle fixture, as neuPrint would."""
+    import json
+    import re
+
+    import pandas as pd
+
+    if "ConnectsTo" in query:
+        frame = pd.DataFrame(sorted(EXPECTED_ORN_PN, key=str), columns=ORN_PN_COLUMNS)
+        return frame.drop(columns="roi")
+    body_ids = set(json.loads(re.search(r"IN (\[[^\]]*\])", query).group(1)))
+    rows = [
+        {"bodyId": body, "type": cell_type, "instance": instance or None, "status": status,
+         "cropped": cropped == "true" if cropped else None, "size": int(size) if size else None}
+        for body, status, cropped, instance, cell_type, size, labels in NEURONS
+        if body in body_ids and labels == NEURON_LABELS
+    ]
+    return pd.DataFrame(rows, columns=["bodyId", "type", "instance", "status", "cropped", "size"])
 
 
 @unittest.skipUnless(HAS_DUCKDB, "duckdb not installed")
