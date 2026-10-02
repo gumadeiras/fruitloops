@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.1 - 2026-10-02
+
 ### Features
 
 - `fruitloops setup` and `fruitloops setup --hemibrain` now build the hemibrain
