@@ -76,16 +76,11 @@ def cmd_setup(args: argparse.Namespace, data: FruitloopsData | None) -> int:
         bulk_rows.append(build_graph_cache(args.store, dataset, skip_current=True))
     rows.extend(normalize_bulk_setup_rows(bulk_rows))
     progress.step("build derived olfaction tables")
-    olfaction_rows = build_olfaction_cache(
-        store=args.store,
-        datasets=datasets,
-        replace=args.replace,
-        skip_current=True,
-    )
+    olfaction_rows = build_shared_olfaction(args.store, selected_datasets, replace=args.replace)
     rows.extend(normalize_olfaction_setup_rows(olfaction_rows, action="olfaction-build"))
     if "hemibrain" in selected_datasets:
         progress.step("hemibrain: cache ORN->PN and annotation tables from the neo4j-inputs bundle")
-        rows.extend(setup_hemibrain_bundle_rows(args, datasets, progress))
+        rows.extend(setup_hemibrain_bundle_rows(args, selected_datasets, progress))
     if args.cache_annotations:
         progress.step("cache live olfaction annotations")
         try:
@@ -101,12 +96,7 @@ def cmd_setup(args: argparse.Namespace, data: FruitloopsData | None) -> int:
         annotation_successes = [row for row in annotation_rows if row.get("status") != "error"]
         rows.extend(normalize_olfaction_setup_rows(annotation_successes, action="annotation-cache"))
         progress.step("rebuild derived olfaction tables with annotations")
-        rebuilt_rows = build_olfaction_cache(
-            store=args.store,
-            datasets=datasets,
-            replace=True,
-            skip_current=True,
-        )
+        rebuilt_rows = build_shared_olfaction(args.store, selected_datasets, replace=True)
         rows.extend(normalize_olfaction_setup_rows(rebuilt_rows, action="olfaction-rebuild"))
         rows.extend(normalize_olfaction_setup_rows(annotation_errors, action="annotation-cache"))
     progress.finish("write setup summary")
@@ -114,9 +104,17 @@ def cmd_setup(args: argparse.Namespace, data: FruitloopsData | None) -> int:
     return 0
 
 
+def build_shared_olfaction(store: Path, selected_datasets: list[str], replace: bool) -> list[dict[str, str]]:
+    # The olf tables are one set shared by both datasets, so setup builds them for each dataset
+    # whose source tables exist; --dataset limits only what this run downloads and imports. A
+    # dataset that this run did not select is not a setup problem when its tables are missing.
+    rows = build_olfaction_cache(store=store, datasets=None, replace=replace, skip_current=True)
+    return [row for row in rows if row["status"] != "missing" or row["dataset"] in selected_datasets]
+
+
 def setup_hemibrain_bundle_rows(
     args: argparse.Namespace,
-    datasets: list[str],
+    selected_datasets: list[str],
     progress: SetupProgress,
 ) -> list[dict[str, str]]:
     try:
@@ -135,7 +133,7 @@ def setup_hemibrain_bundle_rows(
     if all(row["status"].startswith(("current:", "existing:")) for row in rows):
         return rows
     progress.detail("rebuild derived olfaction tables with the bundle tables")
-    rebuilt = build_olfaction_cache(store=args.store, datasets=datasets, replace=True, skip_current=True)
+    rebuilt = build_shared_olfaction(args.store, selected_datasets, replace=True)
     return rows + normalize_olfaction_setup_rows(rebuilt, action="olfaction-rebuild")
 
 

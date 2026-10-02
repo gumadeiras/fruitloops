@@ -47,7 +47,8 @@ def cache_olfaction_annotations(
     with duckdb.connect(str(store)) as connection:
         olf_missing = not table_exists(connection, f"{prefix}_neurons")
     if olf_missing:
-        build_olfaction_cache(store=store, datasets=list(selected), replace=True, prefix=prefix)
+        # The olf tables are shared by both datasets, so build them for every dataset with source tables.
+        build_olfaction_cache(store=store, datasets=None, replace=True, prefix=prefix)
     with duckdb.connect(str(store)) as connection:
         rows = []
         if "hemibrain" in selected:

@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Fixes
+
+- `fruitloops setup --flywire` and `fruitloops setup --hemibrain` no longer
+  remove the other dataset from the `olf_*` tables. The dataset flag now limits
+  only the downloads and imports, and setup builds the `olf_*` tables for each
+  dataset whose tables are in the store. `olf cache-annotations` for one
+  dataset also builds missing `olf_*` tables for both datasets. The first setup
+  after the upgrade rebuilds `olf_*` tables that an earlier single-dataset
+  setup narrowed.
+
 ## 0.2.1 - 2026-10-02
 
 ### Features

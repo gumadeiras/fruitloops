@@ -74,8 +74,12 @@ fruitloops setup --csv --no-progress
 
 ## Setup Flags
 
-- `--dataset flywire|hemibrain`, `--flywire`, `--hemibrain`: limit setup to
-  one dataset. Without a dataset flag, setup prepares both datasets.
+- `--dataset flywire|hemibrain`, `--flywire`, `--hemibrain`: limit the
+  downloads and imports of setup to one dataset. Without a dataset flag, setup
+  prepares both datasets. The `olf_*` tables are one set for both datasets, so
+  setup always builds them for each dataset whose tables are in the store. A
+  setup for one dataset does not remove the other dataset from these tables. To
+  build them for one dataset only, use `olf build --dataset flywire|hemibrain`.
 - `--replace` / `--no-replace`: replace existing imported tables or keep them.
   Current stages are skipped by fingerprint.
 - `--cache-annotations`: fetch live labels into DuckDB and rebuild olfaction
