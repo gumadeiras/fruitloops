@@ -60,8 +60,9 @@ fruitloops setup --cache-annotations
 ```
 
 Setup is offline-first. Hemibrain compact adjacencies do not include most ORNs,
-so broad hemibrain ORN glomerulus queries need `--cache-annotations` or a later
-`fruitloops olf cache-annotations --hemibrain`.
+so hemibrain setup also builds the ORN->PN and annotation tables from the
+pinned neuPrint neo4j bundle, without tokens. It reads about 750 MB of the
+bundle by HTTP range requests.
 
 Run directly from the repository:
 
@@ -150,7 +151,7 @@ fruitloops olf tables --csv
 ```
 
 Full local stores typically expose roughly 60-80 glomerulus labels per
-dataset, depending on imported annotations and whether hemibrain live ORN->PN
+dataset, depending on imported annotations and whether hemibrain ORN->PN
 edges have been cached.
 
 Command shapes:
@@ -168,10 +169,12 @@ fruitloops olf orn-inputs --glomerulus DM1 --by-side --flywire --csv
 ```
 
 Hemibrain compact adjacencies only include traced neurons, so most hemibrain
-ORNs are absent from the compact cache. For hemibrain ORN->PN glomerulus
-queries across the full ORN set, cache live neuPrint ORN->PN edges once:
+ORNs are absent from the compact cache. Setup caches the full hemibrain ORN->PN
+edges from the neo4j bundle. To refresh them offline from the bundle, or live
+from neuPrint with a token:
 
 ```bash
+fruitloops olf cache-annotations --hemibrain --source neo4j-inputs --csv
 fruitloops olf cache-annotations --hemibrain --csv
 ```
 

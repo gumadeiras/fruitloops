@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from .bulk import DEFAULT_BULK_DIR
 from .duckdb_store import DEFAULT_DUCKDB_PATH, require_duckdb, safe_identifier, table_exists
 from .olfaction import (
     CONNECTION_SPECS,
@@ -16,6 +17,8 @@ from .olfaction import (
 )
 from .setup_state import sha256_json, write_setup_state
 
+HEMIBRAIN_SOURCES = ("live", "neo4j-inputs")
+
 
 def cache_olfaction_annotations(
     store: Path = DEFAULT_DUCKDB_PATH,
@@ -23,7 +26,16 @@ def cache_olfaction_annotations(
     chunk_size: int = 2000,
     rebuild: bool = True,
     prefix: str = OLFACTION_PREFIX,
+    hemibrain_source: str = "live",
+    bulk_dir: Path = DEFAULT_BULK_DIR,
 ) -> list[dict[str, str]]:
+    """Cache annotation tables, then rebuild the olf tables unless ``rebuild`` is false.
+
+    ``hemibrain_source`` is ``live`` for neuPrint or ``neo4j-inputs`` for the pinned
+    bulk bundle under ``bulk_dir``; FlyWire tables always come from the live API.
+    """
+    if hemibrain_source not in HEMIBRAIN_SOURCES:
+        raise ValueError(f"unknown hemibrain annotation source: {hemibrain_source}")
     duckdb = require_duckdb("olfaction annotation cache")
     selected = tuple(datasets or CONNECTION_SPECS.keys())
     prefix = safe_identifier(prefix)
@@ -35,7 +47,12 @@ def cache_olfaction_annotations(
         rows = []
         if "hemibrain" in selected:
             try:
-                rows.extend(cache_hemibrain_annotations(connection, store, chunk_size, prefix))
+                if hemibrain_source == "neo4j-inputs":
+                    from .hemibrain_neo4j import cache_hemibrain_bundle_annotations
+
+                    rows.extend(cache_hemibrain_bundle_annotations(connection, store, prefix, bulk_dir))
+                else:
+                    rows.extend(cache_hemibrain_annotations(connection, store, chunk_size, prefix))
             except (Exception, SystemExit) as exc:
                 rows.append(
                     annotation_error_row(

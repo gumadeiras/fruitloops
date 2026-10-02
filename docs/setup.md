@@ -42,8 +42,11 @@ fruitloops setup
 Setup downloads/imports practical bulk connection tables, creates the DuckDB
 store, creates the live cache directory, optimizes imported tables, and builds
 derived `olf_*` tables. FlyWire setup also imports the pinned whole-brain
-neuron annotation table (`flywire_neuron_annotations`). Each dataset also gets
-a sparse graph cache for `paths` and `reach`; see
+neuron annotation table (`flywire_neuron_annotations`). Hemibrain setup also
+builds the ORN->PN and olfaction annotation tables from the pinned neuPrint
+neo4j bundle, without credentials; see
+[Hemibrain tables from the neo4j bundle](#hemibrain-tables-from-the-neo4j-bundle).
+Each dataset also gets a sparse graph cache for `paths` and `reach`; see
 [docs/paths.md](paths.md).
 
 Common variants:
@@ -96,7 +99,9 @@ derived tables once and prints a note on stderr. That rebuild keeps the
 datasets of the last build; run `setup` or `olf build` to change them.
 
 If the pinned FlyWire annotation download or its sha256 check fails, setup
-reports an `error` row and continues with the graph and olfaction stages.
+reports an `error` row and continues with the graph and olfaction stages. If
+the hemibrain neo4j bundle cannot be read or verified, setup reports an
+`error` row for `neo4j-inputs` and keeps the other hemibrain tables.
 
 ## Annotation Caching
 
@@ -121,12 +126,84 @@ fruitloops olf cache-annotations
 
 Default setup is offline-first. FlyWire ORN/PN/glomerulus labels are usually
 usable after practical setup because public annotation tables are imported.
-Hemibrain compact adjacencies only include traced neurons, so broad hemibrain
-ORN glomerulus queries need live ORN->PN caching:
+Hemibrain compact adjacencies only include traced neurons, and only 2 of them
+are ORNs. Hemibrain setup therefore builds the ORN->PN and annotation tables
+from the neo4j bundle, as described in the next section.
+
+### Hemibrain tables from the neo4j bundle
+
+`fruitloops setup` and `fruitloops setup --hemibrain` write
+`hemibrain_olfaction_orn_pn_connections` and
+`hemibrain_olfaction_neuron_annotations` from the bulk source
+`hemibrain:neo4j-inputs`, then rebuild the `olf_*` tables. No credentials are
+needed. After setup, `olf glomerulus DM1 --hemibrain` and
+`olf inputs --source-class ORN --hemibrain` count all hemibrain ORNs.
+
+To refresh only these two tables from the bundle:
 
 ```bash
-fruitloops olf cache-annotations --hemibrain --csv
+fruitloops olf cache-annotations --hemibrain --source neo4j-inputs --csv
 ```
+
+`--source neo4j-inputs` requires `--hemibrain`. `--no-rebuild` works as it
+does for the live fetch. Without `--source`, the command fetches the same
+tables live from neuPrint, which needs a hemibrain token.
+
+How the bundle is read:
+
+- If `<bulk-dir>/raw/hemibrain/hemibrain_v1.2_neo4j_inputs.zip` exists, for
+  example from `admin bulk download --dataset hemibrain --kind neo4j-inputs`,
+  fruitloops checks its sha256 and reads it.
+- Otherwise fruitloops reads only the two needed zip members, about 750 MB of
+  the 6.2 GB zip, from the pinned URL with HTTP range requests. Nothing is
+  written to disk.
+- The members are streamed. Only the needed columns and rows are kept, so a
+  read takes about one minute and 0.6 to 1.5 GB of memory.
+
+Integrity pins:
+
+- Whole file: 6,175,266,195 bytes, sha256
+  `d6bcdba98d7fd1a41be08aff79e5725c22cc24cec4a830e6d422ddfecbb98b6e`.
+- Range reads: every response must carry ETag
+  `"e8443e69d1e238f8cb32168b3f6f6bab"` (the object MD5) and the pinned size.
+- Members, from the zip central directory, checked again by the zip CRC-32
+  while streaming: `Neuprint_Neurons_31597.csv` 10,625,728,664 bytes, CRC-32
+  `3ca765b5`; `Neuprint_Neuron_Connections_31597.csv` 4,876,659,508 bytes,
+  CRC-32 `70137ee6`.
+
+The setup stage is current while the pinned bundle, the compact hemibrain
+connection table, and the olfaction schema are unchanged. Setup keeps the two
+tables when another writer, such as a live
+`olf cache-annotations --hemibrain`, wrote them; the status is then
+`existing`. Run the refresh command above to replace them from the bundle.
+
+The tables have the same columns and meaning as the live neuPrint query.
+neuPrint loads `Neuprint_Neurons_31597.csv` as nodes and
+`Neuprint_Neuron_Connections_31597.csv` with
+`--relationships=ConnectsTo=...`
+([neuPrint load guide](https://github.com/connectome-neuprint/neuPrint/blob/master/neo4j_desktop_load.md)).
+
+| Live query | Bundle column |
+| --- | --- |
+| `(n:Neuron)` | `:LABEL` of the neurons file contains `Neuron`. Labels are `;`-separated; Neuron rows have `Segment;hemibrain_Segment;Neuron;hemibrain_Neuron;Cell;hemibrain_Cell`, other segments `Segment;hemibrain_Segment`. |
+| `n.bodyId` | `bodyId:long` |
+| `n.type`, `n.instance`, `n.status` | `type:string`, `instance:string`, `status:string` |
+| `n.cropped` | `cropped:boolean`; only the text `true` is true |
+| `n.size` | `size:long` |
+| `(orn)-[w:ConnectsTo]->(pn)` | one connections row, from `:START_ID(Body-ID)` to `:END_ID(Body-ID)`, matched to the node `:ID(Body-ID)` |
+| `w.weight` | `weight:int` (not `weightHP:int`) |
+| `roi` | the same rule as the live fetch, from the PN instance side suffix |
+
+An empty field is null, because neo4j import sets no property for it. The
+source rule is `type STARTS WITH 'ORN_'`, the target rule is
+`type CONTAINS 'PN'`, and only `weight > 0` rows are kept.
+
+Version: the bundle is hemibrain v1.2. Live neuPrint serves hemibrain:v1.2.1,
+which changed no connectivity. All 17,502 ORN->PN pairs and weights match a
+live fetch, and 6,574 of 6,575 annotation rows match. Two labels differ. PN
+body 1006068474 is `DM4_adPN` in v1.2 and `DP1m_adPN` in v1.2.1, so its 3,110
+ORN synapses count for DM4 instead of DP1m. Body 1734372986 has status
+`Traced` in v1.2 and `Assign` in v1.2.1.
 
 ## Required Environment Variables
 
@@ -212,7 +289,9 @@ The builder creates `olf_edges_by_neuropil`, `olf_edges_total`,
 `olf_neuron_regions`, `olf_pathway_edges`, `olf_pathway_summary`,
 `olf_cell_type_summary`, and `olf_provenance` in the DuckDB store.
 
-It uses imported annotation/cache tables when available:
+It uses imported annotation/cache tables when available. Setup writes the
+two hemibrain cache tables from the neo4j bundle; `olf cache-annotations`
+can refresh them from the bundle or from live neuPrint:
 
 - `hemibrain_olfaction_neuron_annotations` or `hemibrain_traced_neurons`
 - `hemibrain_olfaction_orn_pn_connections`
@@ -278,7 +357,9 @@ fruitloops admin bulk views --table flywire_proofread_connections --prefix flywi
 ```
 
 Hemibrain compact adjacency and Neo4j bundles are CSV archives. Extract first,
-then import the CSVs you need:
+then import the CSVs you need. The Neo4j bundle expands to about 70 GB; setup
+does not extract it, because it streams only the two members it needs. For the
+compact bundle:
 
 ```bash
 hemibrain_path=$(fruitloops admin bulk download --dataset hemibrain --kind compact-adjacencies)

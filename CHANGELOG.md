@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+### Features
+
+- `fruitloops setup` and `fruitloops setup --hemibrain` now build the hemibrain
+  ORN->PN connection and olfaction annotation tables from the pinned neuPrint
+  hemibrain v1.2 neo4j import bundle, without credentials. `olf glomerulus
+  --hemibrain` and `olf inputs --hemibrain` then count all 2,574 hemibrain ORNs
+  with PN partners. Setup reads the two needed bundle members (about 750 MB) by
+  HTTP range requests, or reads a downloaded bundle after its sha256 check. It
+  skips this stage when it is current, and it keeps tables that a live
+  `olf cache-annotations --hemibrain` wrote. The ORN->PN pairs and weights match
+  live neuPrint hemibrain:v1.2.1; one PN keeps its v1.2 label, `DM4_adPN`
+  instead of `DP1m_adPN`.
+- Added `fruitloops olf cache-annotations --hemibrain --source neo4j-inputs` to
+  refresh only these two tables from the bundle. Without `--source`, the
+  command still fetches them live from neuPrint.
+
+### Changes
+
+- `fruitloops admin bulk download --dataset hemibrain --kind neo4j-inputs` now
+  verifies the bundle sha256, and `fruitloops admin bulk sources` lists it.
+- The `olf inputs --hemibrain` hint for missing ORN rows now names the offline
+  bundle command first.
+
 ## 0.2.0 - 2026-10-01
 
 ### Features

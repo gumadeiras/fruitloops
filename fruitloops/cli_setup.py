@@ -10,6 +10,7 @@ from .cli_helpers import add_dataset_filter_arg, add_format_arg, unique_values
 from .data import FruitloopsData
 from .formatting import emit_rows
 from .graph_cache import build_graph_cache
+from .hemibrain_neo4j import setup_hemibrain_bundle
 from .olfaction import build_olfaction_cache
 from .olfaction_live import annotation_error_row, cache_olfaction_annotations
 
@@ -42,7 +43,10 @@ def cmd_setup(args: argparse.Namespace, data: FruitloopsData | None) -> int:
     selected_datasets = datasets or ["flywire", "hemibrain"]
     progress = SetupProgress(
         enabled=args.progress,
-        total=2 + len(selected_datasets) + (2 if args.cache_annotations else 0),
+        total=2
+        + len(selected_datasets)
+        + (1 if "hemibrain" in selected_datasets else 0)
+        + (2 if args.cache_annotations else 0),
     )
     progress.step(f"prepare live cache at {args.cache_dir}")
     args.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -79,6 +83,9 @@ def cmd_setup(args: argparse.Namespace, data: FruitloopsData | None) -> int:
         skip_current=True,
     )
     rows.extend(normalize_olfaction_setup_rows(olfaction_rows, action="olfaction-build"))
+    if "hemibrain" in selected_datasets:
+        progress.step("hemibrain: cache ORN->PN and annotation tables from the neo4j-inputs bundle")
+        rows.extend(setup_hemibrain_bundle_rows(args, datasets, progress))
     if args.cache_annotations:
         progress.step("cache live olfaction annotations")
         try:
@@ -105,6 +112,31 @@ def cmd_setup(args: argparse.Namespace, data: FruitloopsData | None) -> int:
     progress.finish("write setup summary")
     emit_setup_rows(rows, args.format)
     return 0
+
+
+def setup_hemibrain_bundle_rows(
+    args: argparse.Namespace,
+    datasets: list[str],
+    progress: SetupProgress,
+) -> list[dict[str, str]]:
+    try:
+        rows = setup_hemibrain_bundle(args.store, args.bulk_dir, replace=args.replace)
+    except (OSError, ValueError) as error:
+        # The compact hemibrain tables are already built, so setup reports the error and goes on.
+        error_row = setup_status_row(
+            dataset="hemibrain",
+            action="import",
+            target="neo4j-inputs",
+            status=f"error: {error}",
+            path="",
+            store=args.store,
+        )
+        return [error_row]
+    if all(row["status"].startswith(("current:", "existing:")) for row in rows):
+        return rows
+    progress.detail("rebuild derived olfaction tables with the bundle tables")
+    rebuilt = build_olfaction_cache(store=args.store, datasets=datasets, replace=True, skip_current=True)
+    return rows + normalize_olfaction_setup_rows(rebuilt, action="olfaction-rebuild")
 
 
 def emit_setup_rows(rows: list[dict[str, str]], fmt: str) -> None:

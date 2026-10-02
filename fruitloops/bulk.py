@@ -104,7 +104,10 @@ BULK_SOURCES = {
             filename="hemibrain_v1.2_neo4j_inputs.zip",
             format="zip",
             table_name="hemibrain_neo4j_inputs",
-            description="Hemibrain v1.2 neuPrint Neo4j import CSV bundle.",
+            description=(
+                "Hemibrain v1.2 neuPrint Neo4j import CSV bundle; its connectivity matches neuPrint hemibrain:v1.2.1."
+            ),
+            sha256="d6bcdba98d7fd1a41be08aff79e5725c22cc24cec4a830e6d422ddfecbb98b6e",
         ),
     ]
 }

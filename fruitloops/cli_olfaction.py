@@ -20,7 +20,7 @@ from .olfaction import (
     olfaction_tables,
 )
 from .olfaction_freshness import refresh_stale_olfaction_cache
-from .olfaction_live import cache_olfaction_annotations
+from .olfaction_live import HEMIBRAIN_SOURCES, cache_olfaction_annotations
 
 
 CELL_CLASS_CHOICES = ("ORN", "PN", "LN", "LHN", "KC", "MBON", "APL", "DAN")
@@ -49,6 +49,21 @@ def add_olfaction_parser(subparsers, *, name: str = "olfaction", hidden: bool = 
         help="Fetch AL/LH/MB neuron annotations once and save them into DuckDB.",
     )
     add_dataset_filter_arg(olf_cache, ("hemibrain", "flywire"))
+    olf_cache.add_argument(
+        "--source",
+        choices=HEMIBRAIN_SOURCES,
+        default="live",
+        help=(
+            "Where hemibrain tables come from: live neuPrint (default) or the pinned "
+            "hemibrain v1.2 neo4j-inputs bulk bundle, without credentials; "
+            "neo4j-inputs requires --hemibrain."
+        ),
+    )
+    olf_cache.add_argument(
+        "--bulk-dir",
+        type=Path,
+        help="Bulk directory to check for a downloaded neo4j-inputs bundle; without one, HTTP range requests read it.",
+    )
     olf_cache.add_argument("--chunk-size", type=int, default=2000)
     olf_cache.add_argument("--no-rebuild", action="store_true")
     add_format_arg(olf_cache)
@@ -166,11 +181,16 @@ def cmd_olfaction_build(args: argparse.Namespace, data) -> int:
 
 
 def cmd_olfaction_cache_annotations(args: argparse.Namespace, data) -> int:
+    datasets = unique_values(args.dataset)
+    if args.source == "neo4j-inputs" and datasets != ["hemibrain"]:
+        raise SystemExit("--source neo4j-inputs requires --hemibrain; FlyWire annotations have no bulk bundle")
     rows = cache_olfaction_annotations(
         store=args.store,
-        datasets=unique_values(args.dataset),
+        datasets=datasets,
         chunk_size=args.chunk_size,
         rebuild=not args.no_rebuild,
+        hemibrain_source=args.source,
+        bulk_dir=args.bulk_dir,
     )
     emit_rows(rows, ["dataset", "table", "rows", "status", "store"], args.format)
     return 0
@@ -332,7 +352,8 @@ def warn_hemibrain_compact_orn_gap(args: argparse.Namespace, rows: list[dict[str
     print(
         "fruitloops olf: no hemibrain ORN rows in compact traced-adjacency cache; "
         "most hemibrain ORNs are cropped in neuPrint. Run "
-        "`fruitloops olf cache-annotations --hemibrain` to cache full ORN->PN edges",
+        "`fruitloops olf cache-annotations --hemibrain --source neo4j-inputs` (offline bulk bundle) or "
+        "`fruitloops olf cache-annotations --hemibrain` (live neuPrint) to cache full ORN->PN edges",
         file=sys.stderr,
     )
 

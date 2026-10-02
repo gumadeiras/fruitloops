@@ -99,9 +99,12 @@ python3 -m fruitloops olf inputs --target-class PN --source-class ORN --glomerul
 python3 -m fruitloops olf edges --region LH --min-synapses 5 --format csv
 ```
 
-For complete labels, cache annotations once from live APIs, then query offline:
+Setup builds the hemibrain ORN->PN and annotation tables from the pinned
+neo4j bundle without credentials. Refresh them from the bundle, or cache
+annotations once from live APIs, then query offline:
 
 ```bash
+python3 -m fruitloops olf cache-annotations --dataset hemibrain --source neo4j-inputs
 python3 -m fruitloops olf cache-annotations --dataset hemibrain
 python3 -m fruitloops olf cache-annotations --dataset flywire
 ```
@@ -111,6 +114,7 @@ Expected source tables:
 - `flywire_proofread_connections`
 - `hemibrain_traced_roi_connections`
 - `hemibrain_olfaction_neuron_annotations` or `hemibrain_traced_neurons`
+- `hemibrain_olfaction_orn_pn_connections`
 - optional FlyWire annotations: `flywire_hierarchical_neuron_annotations`,
   `flywire_neuron_information_v2`
 
@@ -203,7 +207,8 @@ Known large sources:
 - FlyWire `proofread-connections`: practical neuron-neuron connectivity table.
 - FlyWire `synapses`: full synapse-level table, very large.
 - Hemibrain `compact-adjacencies`: practical compact traced-neuron CSV bundle.
-- Hemibrain `neo4j-inputs`: full neuPrint import CSV bundle.
+- Hemibrain `neo4j-inputs`: full neuPrint import CSV bundle; setup streams two
+  of its members for the hemibrain ORN->PN tables.
 
 ## Live APIs
 
